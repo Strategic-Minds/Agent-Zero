@@ -1,19 +1,17 @@
-/**
- * AGENT ZERO — Enterprise Home Page
- * Links to all system capabilities
- */
 import Link from "next/link"
+
+export const dynamic = "force-dynamic"
 
 export default function Home() {
   const modules = [
-    { href: "/chat", icon: "💬", title: "ARIA Chat", desc: "Enterprise AI command interface", badge: "LIVE" },
-    { href: "/dashboard", icon: "📊", title: "Dashboard", desc: "Pipeline, leads, analytics", badge: "LIVE" },
-    { href: "/benchmark", icon: "🧪", title: "Benchmark Lab", desc: "GAIA+AgentBench+SWE-bench tests", badge: "V3" },
-    { href: "/api/health", icon: "💚", title: "System Health", desc: "All agents + env status", badge: "API" },
-    { href: "/api/swarm", icon: "🌐", title: "Swarm API", desc: "Parallel multi-agent execution", badge: "NEW" },
-    { href: "/api/aria", icon: "🎯", title: "ARIA API", desc: "20-tool autonomous agent", badge: "API" },
-    { href: "/api/apex", icon: "⚡", title: "APEX API", desc: "Code + self-improvement", badge: "API" },
-    { href: "/api/benchmark", icon: "🏆", title: "Run Benchmark", desc: "Full 30-capability test suite", badge: "30 TESTS" },
+    { href: "/chat",         icon: "💬", title: "ARIA Chat",      desc: "Enterprise AI command interface",     badge: "LIVE" },
+    { href: "/dashboard",    icon: "📊", title: "Dashboard",      desc: "Pipeline, leads, analytics",         badge: "LIVE" },
+    { href: "/benchmark",    icon: "🧪", title: "Benchmark Lab",  desc: "GAIA+AgentBench+MLflow GPA tests",   badge: "V3"   },
+    { href: "/api/health",   icon: "💚", title: "System Health",  desc: "All agents + env status",            badge: "API"  },
+    { href: "/api/swarm",    icon: "🌐", title: "Swarm API",      desc: "Parallel multi-agent execution",     badge: "NEW"  },
+    { href: "/api/aria",     icon: "🎯", title: "ARIA API",       desc: "20-tool autonomous agent",           badge: "API"  },
+    { href: "/api/apex",     icon: "⚡", title: "APEX API",       desc: "Code + self-improvement",            badge: "API"  },
+    { href: "/api/benchmark",icon: "🏆", title: "Run Benchmark",  desc: "Full 30-capability test suite",      badge: "30✓"  },
   ]
 
   return (
@@ -23,10 +21,10 @@ export default function Home() {
           <div style={{ fontSize: 64, marginBottom: 16 }}>⬡</div>
           <h1 style={{ color: "#00d4a0", fontSize: 42, fontWeight: 900, margin: 0, letterSpacing: 2 }}>AGENT ZERO</h1>
           <p style={{ color: "#555", fontSize: 16, marginTop: 12 }}>
-            Enterprise FAANG-grade AI Agent System · Strategic Minds Advisory
+            Enterprise FAANG-grade AI · Strategic Minds Advisory · v2.1
           </p>
           <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
-            {["30 Capabilities","Manus-level+","Swarm Orchestration","ChatGPT Operator","GAIA Benchmark","Playwright Browser","n8n Templates","WhatsApp Parallel"].map(t=>(
+            {["30 Capabilities","Vercel AI Gateway","Swarm Orchestration","Smart Router","GAIA Benchmark","Browser Automation","n8n Templates","WhatsApp Parallel"].map(t => (
               <span key={t} style={{ background: "#00d4a010", border: "1px solid #00d4a030", color: "#00d4a0", padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{t}</span>
             ))}
           </div>
@@ -35,9 +33,7 @@ export default function Home() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
           {modules.map(m => (
             <Link key={m.href} href={m.href} style={{ textDecoration: "none" }}>
-              <div style={{ background: "#0d1117", border: "1px solid #1e2a3a", borderRadius: 12, padding: 20, cursor: "pointer", transition: "border-color 0.2s", position: "relative" }}
-                onMouseOver={e=>(e.currentTarget.style.borderColor="#00d4a040")}
-                onMouseOut={e=>(e.currentTarget.style.borderColor="#1e2a3a")}>
+              <div style={{ background: "#0d1117", border: "1px solid #1e2a3a", borderRadius: 12, padding: 20, position: "relative" }}>
                 <span style={{ position: "absolute", top: 12, right: 12, background: "#00d4a020", color: "#00d4a0", fontSize: 9, padding: "2px 6px", borderRadius: 20, fontWeight: 700 }}>{m.badge}</span>
                 <div style={{ fontSize: 28, marginBottom: 10 }}>{m.icon}</div>
                 <div style={{ fontWeight: 700, color: "#e0e0e0", marginBottom: 4 }}>{m.title}</div>
@@ -48,7 +44,7 @@ export default function Home() {
         </div>
 
         <div style={{ textAlign: "center", marginTop: 48, color: "#333", fontSize: 11 }}>
-          Agent Zero v2.0 · Built for Strategic Minds Advisory / XPS Intelligence · {new Date().getFullYear()}
+          Agent Zero v2.1 · Vercel AI Gateway · Strategic Minds Advisory
         </div>
       </div>
     </div>
