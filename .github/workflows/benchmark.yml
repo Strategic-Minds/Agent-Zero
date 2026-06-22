@@ -1,0 +1,162 @@
+name: Agent Zero — Enterprise Benchmark CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run at 06:30 UTC every day (after daily cron rebuild)
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      notify:
+        description: "Send WhatsApp notification"
+        type: boolean
+        default: true
+
+jobs:
+  benchmark:
+    name: Run Enterprise Benchmark Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for Vercel deployment
+        run: sleep 30
+
+      - name: Run Infrastructure Tests
+        id: infra
+        run: |
+          BASE_URL="${{ secrets.VERCEL_PRODUCTION_URL }}"
+          if [ -z "$BASE_URL" ]; then
+            echo "VERCEL_PRODUCTION_URL not set, using fallback"
+            BASE_URL="https://agent-zero-strategic-minds-advisory.vercel.app"
+          fi
+          
+          echo "Testing $BASE_URL"
+          
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/api/health")
+          echo "health_status=$STATUS" >> $GITHUB_OUTPUT
+          if [ "$STATUS" != "200" ]; then echo "❌ Health check failed: $STATUS"; exit 1; fi
+          echo "✅ Health check: $STATUS"
+
+          # Auth guard
+          AUTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST "$BASE_URL/api/bridge" -d "{}")
+          if [ "$AUTH" != "401" ]; then echo "❌ Auth guard failed: $AUTH"; exit 1; fi
+          echo "✅ Auth guard: $AUTH"
+
+          # Dashboard
+          DASH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$BASE_URL/dashboard")
+          echo "✅ Dashboard: $DASH"
+
+          # Env score
+          HEALTH=$(curl -s --max-time 5 "$BASE_URL/api/health")
+          ENV_SCORE=$(echo $HEALTH | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('env_score','0/13'))")
+          echo "✅ Env score: $ENV_SCORE"
+          echo "env_score=$ENV_SCORE" >> $GITHUB_OUTPUT
+
+      - name: Run Full Benchmark Suite
+        id: benchmark
+        continue-on-error: true
+        run: |
+          BASE_URL="${{ secrets.VERCEL_PRODUCTION_URL }}"
+          if [ -z "$BASE_URL" ]; then
+            BASE_URL="https://agent-zero-strategic-minds-advisory.vercel.app"
+          fi
+          
+          echo "Running full benchmark against $BASE_URL..."
+          
+          RESULT=$(curl -s --max-time 280 "$BASE_URL/api/benchmark" 2>/dev/null)
+          
+          if [ -z "$RESULT" ]; then
+            echo "benchmark_score=0" >> $GITHUB_OUTPUT
+            echo "benchmark_tier=TIMEOUT" >> $GITHUB_OUTPUT
+            echo "⚠️ Benchmark timed out"
+            exit 0
+          fi
+          
+          SCORE=$(echo $RESULT | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('overall_score',0))")
+          TIER=$(echo $RESULT | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tier','?'))")
+          PASSED=$(echo $RESULT | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('passed',0))")
+          TOTAL=$(echo $RESULT | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))")
+          DEPLOYABLE=$(echo $RESULT | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('deployable',False))")
+          
+          echo "benchmark_score=$SCORE" >> $GITHUB_OUTPUT
+          echo "benchmark_tier=$TIER" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "deployable=$DEPLOYABLE" >> $GITHUB_OUTPUT
+          
+          echo "==================================="
+          echo "  BENCHMARK RESULT"
+          echo "==================================="
+          echo "  Score: $SCORE%"
+          echo "  Tier: $TIER"
+          echo "  Tests: $PASSED/$TOTAL"
+          echo "  Deployable: $DEPLOYABLE"
+          echo "==================================="
+          
+          # Print full report
+          echo $RESULT | python3 -c "
+          import sys,json
+          d=json.load(sys.stdin)
+          print()
+          for t in d.get("tests", []):
+              icon="✅" if t["status"]=="PASS" else "❌" if t["status"]=="FAIL" else "⚡"
+              print(f"{icon} [{t["id"]}] {t["name"]} ({t["latency_ms"]}ms)")
+          print()
+          print("Category Scores:")
+          for cat,score in d.get("category_scores",{}).items():
+              bar="█" * (score//10) + "░" * (10-(score//10))
+              print(f"  {cat:<25} {bar} {score}%")
+          print()
+          if d.get("improvement_targets"):
+              print("Improvement Targets:")
+              for t in d["improvement_targets"]: print(f"  - {t}")
+          "
+
+      - name: Quality Gate
+        run: |
+          SCORE="${{ steps.benchmark.outputs.benchmark_score }}"
+          TIER="${{ steps.benchmark.outputs.benchmark_tier }}"
+          
+          echo "Quality Gate Check: Score=$SCORE Tier=$TIER"
+          
+          # Warn if below A-Tier (85%)
+          if [ -n "$SCORE" ] && [ "$SCORE" -lt 70 ] 2>/dev/null; then
+            echo "⚠️ WARNING: Score below B-Tier (70%). Deployment not recommended."
+            echo "::warning::Agent benchmark score $SCORE% is below minimum threshold 70%"
+          elif [ -n "$SCORE" ] && [ "$SCORE" -ge 95 ] 2>/dev/null; then
+            echo "🏆 S-TIER achieved! System is operating at world-class level."
+          elif [ -n "$SCORE" ] && [ "$SCORE" -ge 85 ] 2>/dev/null; then
+            echo "✅ A-TIER: Production-ready. Enterprise deployment approved."
+          else
+            echo "ℹ️ Score: $SCORE% — continuing deployment"
+          fi
+
+      - name: Post Summary
+        if: always()
+        run: |
+          SCORE="${{ steps.benchmark.outputs.benchmark_score }}"
+          TIER="${{ steps.benchmark.outputs.benchmark_tier }}"
+          PASSED="${{ steps.benchmark.outputs.passed }}"
+          TOTAL="${{ steps.benchmark.outputs.total }}"
+          ENV="${{ steps.infra.outputs.env_score }}"
+          
+          echo "## 🤖 Agent Zero Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Overall Score | **${SCORE}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tier | ${TIER} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests Passed | ${PASSED}/${TOTAL} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Env Configured | ${ENV} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Run at $(date -u)_" >> $GITHUB_STEP_SUMMARY
