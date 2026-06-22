@@ -1,11 +1,20 @@
 {
   "crons": [
-    { "path": "/api/cron/lead-discovery",  "schedule": "0 8 * * 1-5" },
-    { "path": "/api/cron/lead-scoring",    "schedule": "0 9 * * 1-5" },
+    { "path": "/api/cron/lead-discovery",    "schedule": "0 8 * * 1-5"  },
+    { "path": "/api/cron/lead-scoring",      "schedule": "0 9 * * 1-5"  },
     { "path": "/api/cron/outreach-followup", "schedule": "0 10 * * 1-5" },
-    { "path": "/api/cron/daily-briefing",  "schedule": "0 12 * * 1-5" },
-    { "path": "/api/cron/weekly-report",   "schedule": "0 14 * * 1" },
-    { "path": "/api/cron/benchmark",       "schedule": "30 6 * * *" }
+    { "path": "/api/cron/daily-briefing",    "schedule": "0 12 * * 1-5" },
+    { "path": "/api/cron/weekly-report",     "schedule": "0 14 * * 1"   },
+    { "path": "/api/cron/benchmark",         "schedule": "30 6 * * *"   }
   ],
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Agent-Zero-Version", "value": "2.0.0" },
+        { "key": "X-Powered-By", "value": "Strategic Minds Advisory" }
+      ]
+    }
+  ]
 }
