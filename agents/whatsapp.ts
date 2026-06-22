@@ -95,7 +95,9 @@ export async function sendReport(report: string, recipient?: string): Promise<bo
   if (!to) return false
   
   // Split long messages
-  const chunks = report.match(/.{1,4000}/gs) || [report]
+  const chunks: string[] = []
+  for (let i = 0; i < report.length; i += 4000) { chunks.push(report.slice(i, i + 4000)) }
+  if (!chunks.length) chunks.push(report)
   for (const chunk of chunks) {
     await sendSingle({ to, message: chunk })
     if (chunks.length > 1) await new Promise(r => setTimeout(r, 500))
