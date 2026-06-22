@@ -18,18 +18,18 @@ export async function GET(req: NextRequest) {
     const report = await runHumanValidation(base, { priorities: ["P0"], maxTests: 20 })
     runs.push({
       run: i + 1,
-      score: report.overall_score,
-      grade: report.faang_grade,
+      score: report.score,
+      grade: report.grade,
       passed: report.passed,
       failed: report.failed,
       p0_failures: report.p0_failures,
-      cleared: report.url_cleared,
+      cleared: report.deployment_approved,
     })
     if (i < 2) await new Promise(r => setTimeout(r, 2000))
   }
 
   const avgScore = Math.round(runs.reduce((s, r) => s + r.score, 0) / 3)
-  const allCleared = runs.every(r => r.cleared)
+  const allCleared = runs.every(r => r.deployment_approved)
   const anyP0Failure = runs.some(r => r.p0_failures > 0)
 
   return NextResponse.json({
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     avg_score: avgScore,
     all_cleared: allCleared,
     any_p0_failure: anyP0Failure,
-    recommendation: allCleared ? "CLEARED — all 3 runs passed P0 tests" : "BLOCKED — " + runs.filter(r => !r.cleared).length + " runs failed",
+    recommendation: allCleared ? "CLEARED — all 3 runs passed P0 tests" : "BLOCKED — " + runs.filter(r => !r.deployment_approved).length + " runs failed",
     timestamp: new Date().toISOString(),
   })
 }
