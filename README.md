@@ -43,3 +43,5 @@ Maximum controlled autonomy. Maximum profitability. Human approval at every prot
 
 ## First Read
 START_HERE.md → SYSTEM_SOURCE_OF_TRUTH.md → AUTONOMY_AND_APPROVAL_MATRIX.md
+
+<!-- build trigger: 2026-06-22T07:27:08.952621 -->
