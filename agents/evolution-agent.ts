@@ -135,11 +135,7 @@ Be specific. Code paths, function names, exact changes. No vague guidance.`,
   }
 
   // Persist evolution plan
-  await db.from("evolution_plans").insert({
-    evolution_id: evolutionId,
-    ...plan,
-    created_at: new Date().toISOString(),
-  }).catch(() => {})
+  await db.from("evolution_plans").insert({ ...plan, created_at: new Date().toISOString() }).catch(() => {})
 
   await trackSOPEvent({
     event_type: "evolution_cycle",
