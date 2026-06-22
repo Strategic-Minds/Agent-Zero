@@ -460,8 +460,8 @@ SCHEMA TYPES FOUND: ${[...new Set(pages.flatMap(p => p.schemaTypes))].join(', ')
 ALL CTAs FOUND: ${[...new Set(pages.flatMap(p => p.ctas))].join(' | ').slice(0, 500)}
 `
 
-  const { object } = await generateObject({
-    model,
+  const { object } = await withRetry(() => generateObject({
+    model: getModel(),
     schema: z.object({
       overallScore: z.number().min(0).max(100),
       framework: z.string(),
@@ -510,15 +510,12 @@ ALL CTAs FOUND: ${[...new Set(pages.flatMap(p => p.ctas))].join(' | ').slice(0, 
         priorityOrder: z.array(z.string()),
       }),
     }),
-    prompt: `You are a ceiling-level full-stack architect, business strategist, and UX expert.
-    
-Analyze this website data and produce the most comprehensive technical + business blueprint possible.
-
-${context}
-
-Be extremely specific. Identify EVERY weakness, opportunity, and architectural decision.
-Think like you're going to rebuild this site and make it 10x better.
-Rate scores honestly  -  most sites have real weaknesses.`,
+    prompt: 'You are a ceiling-level full-stack architect, business strategist, and UX expert.\n\n' +
+      'Analyze this website data and produce the most comprehensive technical + business blueprint possible.\n\n' +
+      context +
+      '\n\nBe extremely specific. Identify EVERY weakness, opportunity, and architectural decision.\n' +
+      'Think like you are going to rebuild this site and make it 10x better.\n' +
+      'Rate scores honestly - most sites have real weaknesses.',
     maxTokens: 3000,
   }))
 
