@@ -13,7 +13,11 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/cron/auto-validate",
+      "path": "/api/cron/sop-reflect-email",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/evolve",
       "schedule": "0 */6 * * *"
     },
     {
@@ -43,6 +47,10 @@
     {
       "path": "/api/cron/auto-install",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/auto-validate",
+      "schedule": "0 */6 * * *"
     }
   ]
 }
