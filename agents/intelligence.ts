@@ -64,7 +64,7 @@ export async function scoreUnscored(limit = 50): Promise<{
   const { data: leads, error } = await db
     .from('xps_companies')
     .select('id, company_name, city, state, phone, email, website_url, category_guess, adjacency_class, entity_status, formation_date, raw_notes')
-    .eq('priority_tier', 'unscored')
+    .or('priority_tier.is.null,priority_tier.eq.unscored')
     .order('created_at', { ascending: true })
     .limit(limit)
 
