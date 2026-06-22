@@ -141,7 +141,7 @@ async function runSingleTest(test: ValidationTest, baseUrl: string): Promise<Tes
       // API tests
       case "api_01": {
         const r = await runHTTPTest(`${baseUrl}/api/aria`)
-        passed = r.ok && r.body.includes("online" || "ARIA")
+        passed = r.ok && r.body.includes("online") || r.body.includes("ARIA")
         score = passed ? 100 : 0
         details = `HTTP ${r.status}: ${r.body.slice(0, 100)}`
         break
