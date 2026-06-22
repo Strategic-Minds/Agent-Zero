@@ -680,7 +680,7 @@ export async function autonomousTest(files: Array<{ path: string; content: strin
   for (const file of files) {
     await new Promise(r => setTimeout(r, 2000)) // 2s delay between files to avoid TPM
     const { object } = await withRetry(() => generateObject({
-      model: useOpenAI ? getOpenAIModel() : _groq8b,
+      model: useOpenAI ? getOpenAIModel() : groq('llama-3.1-8b-instant'),
       schema: z.object({
         tests: z.array(z.object({
           category: z.enum(['navigation', 'forms', 'performance', 'seo', 'accessibility', 'security', 'api', 'mobile']),
@@ -748,7 +748,7 @@ export async function autoHeal(
     if (!relevantFixes.length) continue
 
     const { text: healed_content } = await withRetry(() => generateText({
-      model: useOpenAI ? getOpenAIModel() : _groq8b,
+      model: useOpenAI ? getOpenAIModel() : groq('llama-3.1-8b-instant'),
       prompt: `You are a senior engineer doing a targeted code fix. 
 
 FILE: ${file.path}
