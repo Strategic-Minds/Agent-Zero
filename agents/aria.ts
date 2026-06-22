@@ -175,4 +175,3 @@ export async function route(task: string): Promise<{ agent: string; result: unkn
   return { agent: "ARIA", result: (await chat(task, [], "system", "web")).response }
 }
 
-void recallAll
