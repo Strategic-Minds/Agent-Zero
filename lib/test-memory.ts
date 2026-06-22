@@ -65,7 +65,7 @@ export interface TestMemoryEntry {
   fix_applied_at?: string
   // Context
   last_details: string
-  last_error?: string
+  last_error?: string | null
   last_deployment_url: string
   created_at: string
   updated_at: string
@@ -195,14 +195,14 @@ export async function upsertTestMemory(result: TestResult): Promise<TestMemoryEn
     last_pass_at: result.passed ? now : prev?.last_pass_at,
     last_fail_at: !result.passed ? now : prev?.last_fail_at,
     is_flaky,
-    flaky_since: is_flaky && !prev?.is_flaky ? now : prev?.flaky_since,
+    flaky_since: is_flaky && !prev?.is_flaky ? now : (prev?.flaky_since ?? undefined),
     consecutive_passes,
     consecutive_fails,
-    known_failure_pattern: known_failure_pattern || null,
-    known_fix: known_fix || null,
-    fix_applied_at: prev?.fix_applied_at || null,
+    known_failure_pattern: known_failure_pattern ?? undefined,
+    known_fix: known_fix ?? undefined,
+    fix_applied_at: prev?.fix_applied_at ?? undefined,
     last_details: result.details,
-    last_error: result.error || null,
+    last_error: result.error ?? undefined,
     last_deployment_url: result.deployment_url,
     created_at: prev?.created_at || now,
     updated_at: now,
