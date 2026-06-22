@@ -78,13 +78,7 @@ Agent Zero Self-Reflection Context:
   const { text: aiReflection } = await withSmartRetry("reasoning", (model) =>
     generateText({
       model,
-      prompt: context + "
-
-As Agent Zero, write an honest 3-paragraph self-reflection:
-1. What is working well right now
-2. What is broken or underperforming and why it matters
-3. The single most important thing to fix in the next cycle
-Be brutally honest. No flattery. Max 200 words.",
+      prompt: context + "As Agent Zero, write an honest 3-paragraph self-reflection: 1. What is working well right now 2. What is broken or underperforming and why it matters 3. The single most important thing to fix in the next cycle Be brutally honest. No flattery. Max 200 words.",
       maxTokens: 300,
     })
   ).catch(() => ({ text: "Reflection generation failed — system is operating but AI reflection unavailable." }))
