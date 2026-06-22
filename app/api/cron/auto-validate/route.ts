@@ -16,13 +16,13 @@ export async function GET(req: NextRequest) {
   for (let i = 0; i < 3; i++) {
     try {
       const r = await runValidation(base)
-      results.push({ run: i + 1, score: r.overall_score, grade: r.faang_grade, cleared: r.url_cleared, critical_failures: r.critical_failures })
+      results.push({ run: i + 1, score: r.score, grade: r.grade, cleared: r.deployment_approved, critical_failures: r.critical_failures })
     } catch (e) {
       results.push({ run: i + 1, score: 0, grade: "F", cleared: false, error: String(e).slice(0, 100) })
     }
     if (i < 2) await new Promise(r => setTimeout(r, 5000))
   }
   const avgScore = Math.round(results.reduce((s, r) => s + (r.score || 0), 0) / 3)
-  const allCleared = results.every(r => r.cleared)
+  const allCleared = results.every(r => r.deployment_approved)
   return NextResponse.json({ triple_check: true, runs: results, avg_score: avgScore, all_cleared: allCleared, timestamp: new Date().toISOString() })
 }
