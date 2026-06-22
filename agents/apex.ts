@@ -1,23 +1,23 @@
 /**
  * ╔═══════════════════════════════════════════════════════════════════╗
- * ║  APEX AGENT — Ceiling-Level Autonomous Code Intelligence Engine  ║
+ * ║  APEX AGENT  -  Ceiling-Level Autonomous Code Intelligence Engine  ║
  * ║                                                                   ║
  * ║  Skills: Clone · Rebuild · Heal · Harden · Test · Optimize       ║
- * ║  Mode:   Fully autonomous — no human prompting required           ║
+ * ║  Mode:   Fully autonomous  -  no human prompting required           ║
  * ║  Output: Production-ready Next.js, enterprise docs, test reports  ║
  * ╚═══════════════════════════════════════════════════════════════════╝
  *
  * WORKFLOW (auto-executes in sequence):
- *  1. DISCOVER  — Find top 3 sites/systems in target niche worldwide
- *  2. CRAWL     — Deep parallel multi-page inhalation (headless)
- *  3. ANALYZE   — Reverse-engineer every layer (tech, UX, business, code)
- *  4. RANK      — Score sites by quality, identify the best patterns
- *  5. SANDBOX   — Generate complete Next.js clone in /clone-output
- *  6. TEST      — Autonomous frontend + backend + UX testing
- *  7. HEAL      — Auto-fix all failures, harden, optimize
- *  8. DOCUMENT  — Generate enterprise intelligence files + Google Docs
- *  9. DEPLOY    — Push to GitHub → auto-deploy to Vercel
- * 10. REPORT    — WhatsApp briefing to Jeremy
+ *  1. DISCOVER   -  Find top 3 sites/systems in target niche worldwide
+ *  2. CRAWL      -  Deep parallel multi-page inhalation (headless)
+ *  3. ANALYZE    -  Reverse-engineer every layer (tech, UX, business, code)
+ *  4. RANK       -  Score sites by quality, identify the best patterns
+ *  5. SANDBOX    -  Generate complete Next.js clone in /clone-output
+ *  6. TEST       -  Autonomous frontend + backend + UX testing
+ *  7. HEAL       -  Auto-fix all failures, harden, optimize
+ *  8. DOCUMENT   -  Generate enterprise intelligence files + Google Docs
+ *  9. DEPLOY     -  Push to GitHub → auto-deploy to Vercel
+ * 10. REPORT     -  WhatsApp briefing to Jeremy
  */
 
 import { generateText, generateObject } from 'ai'
@@ -27,7 +27,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { logAction, remember, recall } from '@/lib/memory'
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
-// Model rotation pool — used round-robin to avoid TPM limits
+// Model rotation pool  -  used round-robin to avoid TPM limits
 const MODELS = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'gemma2-9b-it']
 let modelIdx = 0
 function getModel() {
@@ -399,7 +399,7 @@ export async function deepCrawlSite(baseUrl: string, maxPages = 20): Promise<Pag
     if (!queue.includes(u)) queue.push(u)
   }
 
-  // Parallel fetch — process in batches of 5
+  // Parallel fetch  -  process in batches of 5
   while (queue.length > 0 && pages.length < maxPages) {
     const batch = queue.splice(0, 5).filter(u => !visited.has(u))
     if (!batch.length) continue
@@ -518,7 +518,7 @@ ${context}
 
 Be extremely specific. Identify EVERY weakness, opportunity, and architectural decision.
 Think like you're going to rebuild this site and make it 10x better.
-Rate scores honestly — most sites have real weaknesses.`,
+Rate scores honestly  -  most sites have real weaknesses.`,
     maxTokens: 3000,
   }))
 
@@ -616,7 +616,7 @@ Output ONLY valid TypeScript/TSX code.`,
   // Generate: API route (contact/lead capture)
   const { text: apiRoute } = await generateText({
     model,
-    prompt: `Generate app/api/contact/route.ts — a production-ready contact/lead capture API.
+    prompt: `Generate app/api/contact/route.ts  -  a production-ready contact/lead capture API.
 
 For site: ${best.url} (${best.niche})
 Include: validation, rate limiting logic, email response structure, Supabase insert, TypeScript.
@@ -693,14 +693,14 @@ ${file.content.slice(0, 4000)}
 \`\`\`
 
 Run these test categories:
-1. Navigation — are links valid, do routes exist, are CTAs functional
-2. Forms — validation, CSRF protection, error states, success states
-3. Performance — render blocking, bundle size, lazy loading, image optimization
-4. SEO — meta tags, semantic HTML, schema markup, canonical URLs
-5. Accessibility — ARIA labels, keyboard navigation, color contrast, alt text
-6. Security — XSS vectors, injection points, exposed secrets, CORS
-7. API — input validation, error handling, rate limiting, auth checks
-8. Mobile — viewport meta, touch targets, responsive breakpoints
+1. Navigation  -  are links valid, do routes exist, are CTAs functional
+2. Forms  -  validation, CSRF protection, error states, success states
+3. Performance  -  render blocking, bundle size, lazy loading, image optimization
+4. SEO  -  meta tags, semantic HTML, schema markup, canonical URLs
+5. Accessibility  -  ARIA labels, keyboard navigation, color contrast, alt text
+6. Security  -  XSS vectors, injection points, exposed secrets, CORS
+7. API  -  input validation, error handling, rate limiting, auth checks
+8. Mobile  -  viewport meta, touch targets, responsive breakpoints
 
 Be specific about what passes and what fails. For failures, provide exact fix.`,
       maxTokens: 2000,
@@ -794,7 +794,7 @@ export async function generateIntelligenceDoc(blueprints: SiteBlueprint[], runId
 # SITE SCORECARD
 
 ${blueprints.map((b, i) => `
-## #${i+1} — ${b.url} (${b.overallScore}/100)
+## #${i+1}  -  ${b.url} (${b.overallScore}/100)
 
 | Dimension | Score | Grade |
 |-----------|-------|-------|
@@ -815,7 +815,7 @@ ${blueprints.map((b, i) => `
 # CRITICAL WEAKNESSES (All Sites)
 
 ${blueprints.flatMap(b => b.siteWideWeaknesses.filter(w => w.severity === 'critical')).map(w => `
-### 🔴 CRITICAL: ${w.category.toUpperCase()} — ${w.description}
+### 🔴 CRITICAL: ${w.category.toUpperCase()}  -  ${w.description}
 - **Fix:** ${w.fix}
 - **Effort:** ${w.effort}
 - **Impact:** ${w.estimatedImpact}
@@ -824,7 +824,7 @@ ${blueprints.flatMap(b => b.siteWideWeaknesses.filter(w => w.severity === 'criti
 # HIGH SEVERITY WEAKNESSES
 
 ${blueprints.flatMap(b => b.siteWideWeaknesses.filter(w => w.severity === 'high')).map(w => `
-### 🟠 HIGH: ${w.category.toUpperCase()} — ${w.description}
+### 🟠 HIGH: ${w.category.toUpperCase()}  -  ${w.description}
 - **Fix:** ${w.fix}
 - **Effort:** ${w.effort}
 `).join('\n')}
