@@ -1,3 +1,3 @@
-export const BUILD_TIME = "2026-06-22T21:39:27.078058";
-export const VERSION = "4.2.0";
-export const AUDIT_SYSTEM = true;
+export const BUILD_TIME = "2026-06-22T22:49:36.139753";
+export const VERSION = "4.3.0";
+export const FEATURES = "sop,reflection,evolution,email_reports,auto_builder";
