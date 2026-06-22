@@ -27,7 +27,35 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { logAction, remember, recall } from '@/lib/memory'
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
+// Model rotation pool — used round-robin to avoid TPM limits
+const MODELS = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'gemma2-9b-it']
+let modelIdx = 0
+function getModel() {
+  const m = groq(MODELS[modelIdx % MODELS.length])
+  modelIdx++
+  return m
+}
 const model = groq('llama-3.3-70b-versatile')
+
+// Retry with backoff on rate limit errors
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelay = 5000): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const isRateLimit = msg.includes('Rate limit') || msg.includes('429') || msg.includes('TPM')
+      if (isRateLimit && attempt < maxAttempts) {
+        const delay = baseDelay * attempt
+        await new Promise(r => setTimeout(r, delay))
+        modelIdx++ // rotate model
+        continue
+      }
+      throw e
+    }
+  }
+  throw new Error('Max retry attempts exceeded')
+}
 
 export const APEX_ID = 'apex-agent'
 export const APEX_VERSION = '2.0.0'
@@ -167,8 +195,8 @@ export async function discoverTopSites(params: {
   country?: string
   maxSites?: number
 }): Promise<string[]> {
-  const { object } = await generateObject({
-    model,
+  const { object } = await withRetry(() => generateObject({
+    model: getModel(),
     schema: z.object({
       sites: z.array(z.object({
         url: z.string(),
@@ -492,7 +520,7 @@ Be extremely specific. Identify EVERY weakness, opportunity, and architectural d
 Think like you're going to rebuild this site and make it 10x better.
 Rate scores honestly — most sites have real weaknesses.`,
     maxTokens: 3000,
-  })
+  }))
 
   return {
     url,
@@ -900,6 +928,7 @@ export async function runApex(target: ApexTarget): Promise<ApexRun> {
     for (let i = 0; i < targetUrls.length; i++) {
       const crawl = crawlResults[i]
       if (crawl.status !== 'fulfilled' || !crawl.value.length) continue
+      if (i > 0) await new Promise(r => setTimeout(r, 8000)) // rate limit buffer between sites
       const blueprint = await generateBlueprint(targetUrls[i], crawl.value)
       blueprints.push(blueprint)
     }
