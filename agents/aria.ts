@@ -1,20 +1,18 @@
 /**
- * ARIA v3.0 — Multi-channel sovereign intelligence agent
- * Channels: web | whatsapp | studio (creative/freeform) | slack
- * Studio channel uses generateText for freeform creative output (logos, websites, etc.)
+ * ARIA v3.1 — Multi-channel sovereign intelligence agent
+ * Channels: web | whatsapp | studio (freeform) | slack
+ * Studio uses generateText (not generateObject) — no schema errors
  */
 import { generateObject, generateText } from "ai"
 import { createGroq } from "@ai-sdk/groq"
 import { createOpenAI } from "@ai-sdk/openai"
 import { z } from "zod"
-import { remember, recallAll, rehydrateSession, dehydrateSession } from "../lib/memory"
-import { checkPermission, logAction } from "../lib/governance"
+import { remember, recallAll, rehydrateSession } from "../lib/memory"
+import { checkPermission } from "../lib/governance"
 
-function getModel(creative = false) {
+function getModel(large = false) {
   const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
-  // Use larger model for creative/coding tasks
-  if (creative) return groq("llama-3.3-70b-versatile")
-  return groq("llama-3.1-8b-instant")
+  return large ? groq("llama-3.3-70b-versatile") : groq("llama-3.1-8b-instant")
 }
 
 function getOpenAI() {
@@ -28,35 +26,19 @@ async function withRetry<T>(fn: () => Promise<T>, label = "ARIA"): Promise<T> {
     try { return await fn() }
     catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if ((msg.includes("rate") || msg.includes("429") || msg.includes("quota") || msg.includes("exceeded") || msg.includes("limit")) && i < 2) {
+      if ((msg.includes("rate") || msg.includes("429") || msg.includes("quota") || msg.includes("limit")) && i < 2) {
         await new Promise(r => setTimeout(r, 3000 * (i + 1)))
         continue
       }
       throw e
     }
   }
-  throw new Error(`${label}: All retries exhausted`)
+  throw new Error(label + ": retries exhausted")
 }
 
-const STUDIO_SYSTEM = `You are Agent Zero Studio — an expert full-stack developer and designer.
-When asked to create websites, UIs, logos, components, dashboards, landing pages:
-1. Generate complete, beautiful, production-ready HTML/CSS/JS or SVG
-2. Wrap ALL HTML in \`\`\`html code blocks
-3. Wrap ALL SVG in \`\`\`svg code blocks
-4. Use stunning design: gradients, glassmorphism, modern typography, animations
-5. Include all CSS inline — no external dependencies
-6. For logos: clean professional SVG with the exact requested branding
-7. For websites: complete pages with nav, hero, sections, footer
-8. ALWAYS explain what you built BEFORE the code block
-9. Make it immediately usable — no placeholder content
-10. Design style: Stripe/Linear/Vercel aesthetic — clean, modern, dark or light`
+const STUDIO_SYSTEM = "You are Agent Zero Studio, an expert developer and designer. When asked to create websites, logos, UI components, or any visual output: generate complete production-ready HTML (wrapped in ```html) or SVG (wrapped in ```svg). Use stunning design with gradients and animations. Include all CSS inline. Make it immediately usable. Explain what you built before the code block."
 
-const ARIA_SYSTEM = `You are ARIA — the sovereign intelligence agent for Strategic Minds Advisory / XPS Intelligence.
-You work exclusively for Jeremy Bensen. You are autonomous, strategic, results-focused.
-For data: query the database. For research: search the web.
-For code/design: generate complete solutions.
-Destructive actions (delete, bulk wipe): REFUSE without explicit confirmation.
-Always end significant responses with a specific suggested next action.`
+const ARIA_SYSTEM = "You are ARIA, the sovereign intelligence agent for Strategic Minds Advisory. Work exclusively for Jeremy Bensen. Be strategic and results-focused. Refuse destructive actions without explicit confirmation. End significant responses with a specific next action."
 
 export interface ARIAMessage { role: "user" | "assistant"; content: string }
 
@@ -73,19 +55,15 @@ export async function chat(
   message: string,
   history: ARIAMessage[] = [],
   sessionId = "default",
-  channel: string = "web",
+  channel = "web",
   systemOverride?: string
 ): Promise<ARIAResponse> {
   const start = Date.now()
 
-  // ── STUDIO CHANNEL — freeform creative / code generation ──────────────
+  // STUDIO CHANNEL — freeform creative generation
   if (channel === "studio") {
     const system = systemOverride || STUDIO_SYSTEM
-    const isCreative = /logo|website|svg|landing|dashboard|component|ui|design|page|build|create/i.test(message)
-
     let response = ""
-
-    // Try Groq 70B first (best for creative)
     try {
       const { text } = await withRetry(() =>
         generateText({
@@ -95,58 +73,34 @@ export async function chat(
             ...history.slice(-6).map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
             { role: "user" as const, content: message },
           ],
-          maxTokens: isCreative ? 4000 : 2000,
+          maxTokens: 4000,
           temperature: 0.7,
-        }), "Studio-Groq"
-      )
+        }), "Studio-Groq")
       response = text
     } catch {
-      // Fallback to OpenAI
       const oai = getOpenAI()
       if (oai) {
         try {
           const { text } = await withRetry(() =>
-            generateText({
-              model: oai,
-              system,
-              messages: [
-                ...history.slice(-6).map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
-                { role: "user" as const, content: message },
-              ],
-              maxTokens: isCreative ? 4000 : 2000,
-            }), "Studio-OpenAI"
-          )
+            generateText({ model: oai, system, messages: [{ role: "user" as const, content: message }], maxTokens: 4000 }), "Studio-OAI")
           response = text
-        } catch { response = "Sorry, both Groq and OpenAI are currently rate-limited. Please try again in 30 seconds." }
+        } catch { response = "Both Groq and OpenAI are rate-limited. Retry in 30 seconds." }
       } else {
         response = "Groq is rate-limited. Add OPENAI_API_KEY to Vercel env vars for fallback."
       }
     }
-
-    return {
-      response,
-      toolsUsed: ["generate_text"],
-      memoryUpdated: false,
-      actionsTaken: ["creative_generation"],
-      model: "llama-3.3-70b-versatile",
-      latencyMs: Date.now() - start,
-    }
+    return { response, toolsUsed: ["generate_text"], memoryUpdated: false, actionsTaken: ["creative"], model: "llama-3.3-70b-versatile", latencyMs: Date.now() - start }
   }
 
-  // ── STANDARD CHANNEL — structured agent response ──────────────────────
-  try {
-    await checkPermission("aria_chat", "aria", { channel })
-  } catch { /* governance check failed — continue anyway */ }
+  // STANDARD CHANNEL — structured response
+  try { await checkPermission("aria_chat", "aria", { channel }) } catch { /* non-blocking */ }
 
   const recentMem = await recallAll("aria", { limit: 3 }).catch(() => [])
   const memCtx = recentMem.length > 0
-    ? `
-Recent memory: ${recentMem.map((m: { content?: string; text?: string }) => m.content || m.text || "").slice(0, 3).join(" | ")}`
+    ? "\nRecent context: " + (recentMem as Array<{ value?: { user?: string } }>).slice(0, 3).map(m => m?.value?.user || "").join(" | ")
     : ""
 
   const systemPrompt = (systemOverride || ARIA_SYSTEM) + memCtx
-
-  let responseText = ""
 
   try {
     const { object } = await withRetry(() =>
@@ -163,11 +117,17 @@ Recent memory: ${recentMem.map((m: { content?: string; text?: string }) => m.con
           ...history.slice(-8).map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
           { role: "user" as const, content: message },
         ],
-      }), "ARIA-structured"
-    )
+      }), "ARIA-structured")
 
     if (object.memory_updated) {
-      await remember("agent-zero", `User asked: ${message.slice(0, 100)} — responded: ${object.response.slice(0, 100)}`, sessionId).catch(() => {})
+      await remember({
+        agent_id: "aria",
+        session_id: sessionId,
+        memory_type: "episodic",
+        key: "chat_" + Date.now(),
+        value: { user: message.slice(0, 80), response: object.response.slice(0, 80) },
+        importance: 3,
+      }).catch(() => {})
     }
 
     return {
@@ -179,28 +139,13 @@ Recent memory: ${recentMem.map((m: { content?: string; text?: string }) => m.con
       latencyMs: Date.now() - start,
     }
   } catch {
-    // Final fallback — generateText with no schema
+    // Final fallback
     try {
       const { text } = await withRetry(() =>
-        generateText({
-          model: getModel(false),
-          system: systemPrompt,
-          prompt: message,
-          maxTokens: 1500,
-        }), "ARIA-fallback"
-      )
-      responseText = text
+        generateText({ model: getModel(false), system: systemPrompt, prompt: message, maxTokens: 1500 }), "ARIA-fallback")
+      return { response: text, toolsUsed: [], memoryUpdated: false, actionsTaken: ["fallback"], model: "fallback", latencyMs: Date.now() - start }
     } catch (e) {
-      responseText = `ARIA is temporarily rate-limited. Error: ${String(e).slice(0, 100)}`
-    }
-
-    return {
-      response: responseText,
-      toolsUsed: [],
-      memoryUpdated: false,
-      actionsTaken: ["fallback_text"],
-      model: "fallback",
-      latencyMs: Date.now() - start,
+      return { response: "ARIA temporarily unavailable: " + String(e).slice(0, 80), toolsUsed: [], memoryUpdated: false, actionsTaken: [], model: "error", latencyMs: Date.now() - start }
     }
   }
 }
