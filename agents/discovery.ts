@@ -131,16 +131,18 @@ export async function runDiscovery(options: {
   }
 
   // Save run stats
-  await db.from('scrape_runs' as any).insert({
-    run_name: `discovery_${state}_${new Date().toISOString().split('T')[0]}`,
-    run_date: new Date().toISOString(),
-    source: options.source ?? 'ai_discovery',
-    total_records: discovered,
-    new_records: inserted,
-    duplicates_skipped: duplicates,
-    status: errors.length === 0 ? 'success' : 'partial',
-    notes: errors.length > 0 ? errors.slice(0, 3).join('; ') : null,
-  }).catch(() => {}) // Non-blocking
+  try {
+    await db.from('scrape_runs' as any).insert({
+      run_name: `discovery_${state}_${new Date().toISOString().split('T')[0]}`,
+      run_date: new Date().toISOString(),
+      source: options.source ?? 'ai_discovery',
+      total_records: discovered,
+      new_records: inserted,
+      duplicates_skipped: duplicates,
+      status: errors.length === 0 ? 'success' : 'partial',
+      notes: errors.length > 0 ? errors.slice(0, 3).join('; ') : null,
+    })
+  } catch (_e) {} // Non-blocking
 
   await logAction({
     agent_id: DISCOVERY_ID,
