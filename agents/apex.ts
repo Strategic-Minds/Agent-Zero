@@ -36,6 +36,7 @@ function getModel() {
   return m
 }
 const model = groq('llama-3.3-70b-versatile')
+const model8b = groq('llama-3.1-8b-instant')
 
 // Retry with backoff on rate limit errors
 async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelay = 5000): Promise<T> {
@@ -669,8 +670,9 @@ export async function autonomousTest(files: Array<{ path: string; content: strin
   const results: TestResult[] = []
 
   for (const file of files) {
-    const { object } = await generateObject({
-      model,
+    await new Promise(r => setTimeout(r, 2000)) // 2s delay between files to avoid TPM
+    const { object } = await withRetry(() => generateObject({
+      model: model8b,
       schema: z.object({
         tests: z.array(z.object({
           category: z.enum(['navigation', 'forms', 'performance', 'seo', 'accessibility', 'security', 'api', 'mobile']),
@@ -701,7 +703,7 @@ Run these test categories:
 
 Be specific about what passes and what fails. For failures, provide exact fix.`,
       maxTokens: 2000,
-    })
+    }))
 
     results.push(...object.tests)
   }
@@ -737,8 +739,8 @@ export async function autoHeal(
     
     if (!relevantFixes.length) continue
 
-    const { text: healed_content } = await generateText({
-      model,
+    const { text: healed_content } = await withRetry(() => generateText({
+      model: model8b,
       prompt: `You are a senior engineer doing a targeted code fix. 
 
 FILE: ${file.path}
@@ -759,7 +761,7 @@ Rules:
 
 Output ONLY the fixed code.`,
       maxTokens: 4000,
-    })
+    }))
 
     healedFiles[i] = { ...file, content: healed_content }
     healed += relevantFixes.length
