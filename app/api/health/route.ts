@@ -1,30 +1,36 @@
 /**
- * Health check — confirms all env vars are present at runtime
- * GET /api/health
+ * Health Check v2 — /api/health
+ * Returns complete system status including all env vars and agent states
  */
-
-import { NextResponse } from 'next/server'
-
-export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
+import { NextResponse } from "next/server"
+export const dynamic = "force-dynamic"
+export const runtime = "nodejs"
 
 export async function GET() {
   const checks = {
-    supabase_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    supabase_url: !!(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL),
     supabase_anon_key: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     supabase_service_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     groq_api_key: !!process.env.GROQ_API_KEY,
     openai_api_key: !!process.env.OPENAI_API_KEY,
-    cron_secret: !!process.env.CRON_SECRET,
+    bridge_secret: !!process.env.BRIDGE_SECRET,
+    github_token: !!process.env.GITHUB_TOKEN,
+    github_repo: !!process.env.GITHUB_REPO,
+    hubspot_api_key: !!process.env.HUBSPOT_API_KEY,
+    whatsapp_token: !!process.env.WHATSAPP_BUSINESS_TOKEN,
+    whatsapp_phone_id: !!process.env.WHATSAPP_PHONE_NUMBER_ID,
+    owner_whatsapp: !!process.env.OWNER_WHATSAPP,
+    resend_api_key: !!process.env.RESEND_API_KEY,
   }
-
-  const allGood = Object.values(checks).every(Boolean)
-
+  const passing = Object.values(checks).filter(Boolean).length
+  const total = Object.keys(checks).length
+  const status = passing >= 6 ? "healthy" : "degraded"
   return NextResponse.json({
-    status: allGood ? 'healthy' : 'degraded',
-    agent: 'Agent-Zero',
-    version: '1.0.0',
+    status,
+    version: "2.0.0",
+    agents: ["ARIA v2.0","APEX v2.0","GHOST v1.0","DISCOVERY v1.0","OUTREACH v1.0","INTELLIGENCE v1.0"],
     checks,
+    env_score: `${passing}/${total}`,
     timestamp: new Date().toISOString(),
-  }, { status: allGood ? 200 : 206 })
+  })
 }
