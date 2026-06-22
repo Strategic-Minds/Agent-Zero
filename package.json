@@ -9,30 +9,32 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "^14.2.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "ai": "^3.3.0",
-    "@ai-sdk/groq": "^0.0.3",
-    "@ai-sdk/openai": "^0.0.36",
-    "@supabase/supabase-js": "^2.45.0",
-    "@supabase/ssr": "^0.5.0",
-    "groq-sdk": "^0.5.0",
-    "openai": "^4.52.0",
-    "zod": "^3.23.8",
-    "date-fns": "^3.6.0",
-    "nodemailer": "^6.9.14",
-    "twilio": "^5.2.3"
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "ai": "3.4.7",
+    "@ai-sdk/groq": "0.0.3",
+    "@ai-sdk/openai": "0.0.36",
+    "@supabase/supabase-js": "2.45.4",
+    "@supabase/ssr": "0.5.1",
+    "groq-sdk": "0.5.0",
+    "zod": "3.23.8",
+    "date-fns": "3.6.0",
+    "nodemailer": "6.9.14"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
-    "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0",
-    "typescript": "^5.5.0",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "^14.2.0",
-    "tailwindcss": "^3.4.0",
-    "postcss": "^8.4.0",
-    "autoprefixer": "^10.4.0"
+    "@types/node": "20.14.12",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "typescript": "5.5.4",
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.5",
+    "tailwindcss": "3.4.6",
+    "postcss": "8.4.40",
+    "autoprefixer": "10.4.19"
+  },
+  "overrides": {
+    "@ai-sdk/provider": "0.0.26",
+    "@ai-sdk/provider-utils": "1.0.22"
   }
 }
