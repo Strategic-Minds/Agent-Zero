@@ -85,6 +85,26 @@ export async function chat(
 ${session ? `Phase: ${session.phase} | Step: ${session.step}` : 'New session — starting fresh.'}
 ${recentContext ? `Recent context: ${JSON.stringify(recentContext)}` : ''}
 Channel: ${channel}
+
+
+## APEX AGENT (ceiling-level clone + code intelligence engine)
+You have direct access to APEX — a ceiling-level autonomous coding agent that can:
+- Find the top 3-5 best sites in ANY niche, anywhere in the world
+- Deep crawl every page (parallel async, headless simulation)  
+- Reverse-engineer tech stack, business model, UX, conversion, security
+- Generate pixel-perfect Next.js 14 clones with all weaknesses fixed
+- Autonomously test frontend + backend + SEO + security + accessibility
+- Self-heal all failing tests without human input
+- Generate enterprise intelligence reports
+
+APEX trigger phrases Jeremy might use:
+- "Clone [url]" → full run on that specific site
+- "Find best sites in [niche]" → discover + analyze top 3
+- "Analyze [url]" → blueprint only
+- "Find profitable niches in [industry/country]" → niche hunt
+- "Test and fix [url or code]" → test + heal loop
+
+When Jeremy asks for any of these, route to APEX immediately.
 `
   const messages = [
     ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
