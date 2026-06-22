@@ -12,7 +12,7 @@ import { checkPermission, logAction } from "../lib/governance"
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
 
 function getModel() {
-  return groq("llama-3.3-70b-versatile")
+  return groq("llama-3.1-8b-instant")
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -143,7 +143,7 @@ If you already have enough info or just used tools, respond.`,
     memoryUpdated: true,
     actionsTaken: actionsTaken.map(a => a.slice(0, 120)),
     suggestedNextAction: nextMatch?.[1]?.trim(),
-    model: "llama-3.3-70b-versatile",
+    model: "llama-3.1-8b-instant",
     latencyMs: Date.now() - start,
   }
 }
