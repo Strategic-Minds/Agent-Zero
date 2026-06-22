@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         industry: industry as string | undefined,
         country: country as string | undefined,
         mode: (mode as 'clone' | 'enhance' | 'discover_and_clone' | 'audit' | 'niche_hunt') || 'enhance',
-        maxPages: maxPages as number,
+        maxPagesPerSite: maxPages as number,
         maxSites: maxSites as number,
         customInstructions: customInstructions as string | undefined,
         autoTest: autoTest as boolean,
