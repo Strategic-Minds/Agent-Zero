@@ -25,7 +25,8 @@ import { createGroq } from '@ai-sdk/groq'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { logAction, remember, recall } from '@/lib/memory'
+import { remember, recall } from "@/lib/memory"
+import { logAction } from "@/lib/governance"
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
 // Model rotation pool  -  used round-robin to avoid TPM limits
