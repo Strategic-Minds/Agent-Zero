@@ -226,7 +226,7 @@ Criteria:
 
 Return exactly 3-5 sites. Real URLs only.`,
     maxTokens: 1000,
-  })
+  }))
 
   await logAction({
     agent_id: APEX_ID,
