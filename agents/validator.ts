@@ -232,6 +232,7 @@ async function runSingleTest(test: ValidationTest, baseUrl: string): Promise<Tes
         break
       }
       case "comm_02": {
+        await new Promise(resolve => setTimeout(resolve, 10000)) // allow Groq rate limit cooldown
         const r = await runHTTPTest(`${baseUrl}/api/aria`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -273,6 +274,7 @@ async function runSingleTest(test: ValidationTest, baseUrl: string): Promise<Tes
 
       // E2E tests
       case "e2e_01": {
+        await new Promise(resolve => setTimeout(resolve, 8000))
         const r = await runHTTPTest(`${baseUrl}/api/aria`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
