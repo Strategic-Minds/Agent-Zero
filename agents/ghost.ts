@@ -15,7 +15,8 @@ import { generateText, generateObject } from 'ai'
 import { createGroq } from '@ai-sdk/groq'
 import { z } from 'zod'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { logAction, remember } from '@/lib/memory'
+import { remember } from '@/lib/memory'
+import { logAction } from '@/lib/governance'
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
 
