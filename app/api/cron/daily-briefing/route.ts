@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateText } from 'ai'
 import { createGroq } from '@ai-sdk/groq'
 import { supabaseAdmin } from '@/lib/supabase'
-import { logAction } from '@/lib/memory'
+import { logAction } from '@/lib/governance'
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
 
