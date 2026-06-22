@@ -1,2 +1,3 @@
-export const BUILD_TIME = "2026-06-22T22:55:10.592655";
-export const VERSION = "4.3.2";
+export const BUILD_TIME = "2026-06-22T23:02:29.010589";
+export const VERSION = "5.0.0";
+export const FEATURES = "real_scraper,builder_docs,sop,reflection,evolution,audit,email";
