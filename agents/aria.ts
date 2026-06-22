@@ -138,7 +138,7 @@ export async function chat(
     await checkPermission("aria_chat", "aria", { channel })
   } catch { /* governance check failed — continue anyway */ }
 
-  const recentMem = await recallAll("agent-zero", { limit: 3 }).catch(() => [])
+  const recentMem = await recallAll("aria", { limit: 3 }).catch(() => [])
   const memCtx = recentMem.length > 0
     ? `
 Recent memory: ${recentMem.map((m: { content?: string; text?: string }) => m.content || m.text || "").slice(0, 3).join(" | ")}`
