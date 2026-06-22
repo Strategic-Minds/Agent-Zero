@@ -44,7 +44,7 @@ export const SiteIntelligenceSchema = z.object({
   pages: z.array(z.object({
     url: z.string(),
     title: z.string(),
-    type: z.enum(['home', 'product', 'service', 'blog', 'landing', 'checkout', 'contact', 'about', 'other']),
+    type: z.enum(['home', 'product', 'service', 'blog', 'landing', 'checkout', 'contact', 'about', 'pricing', 'faq', 'gallery', 'portfolio', 'testimonials', 'other']),
     wordCount: z.number(),
     hasForm: z.boolean(),
     hasCTA: z.boolean(),
