@@ -1,4 +1,3 @@
-// Agent Zero Build Trigger
-// 2026-06-22T09:30:24.459089
-export const BUILD_TIME = '2026-06-22T09:30:24.459102';
-export const VERSION = '2.0.0';
+// Build trigger: 2026-06-22T17:19:29.865129
+export const BUILD_TIME = "2026-06-22T17:19:29.865141";
+export const VERSION = "2.0.1";
