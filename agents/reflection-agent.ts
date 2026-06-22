@@ -131,7 +131,7 @@ Agent Zero Self-Reflection Context:
   }
 
   // Persist
-  await db.from("reflection_reports").upsert({ reflection_id: reflectionId, ...report, created_at: timestamp }).catch(() => {})
+  await db.from("reflection_reports").upsert({ ...report, created_at: timestamp }, { onConflict: "reflection_id" }).catch(() => {})
 
   await trackSOPEvent({
     event_type: "reflection_completed",
