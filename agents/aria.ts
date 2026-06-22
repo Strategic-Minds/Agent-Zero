@@ -3,16 +3,28 @@
  * Personality: Strategic, visionary, humanistic. 10 steps ahead of Jeremy.
  * Primary interface: WhatsApp. Secondary: web chat, email.
  * Memory: Persistent via Supabase memory layer.
+ *
+ * Provider strategy:
+ *   - Groq (llama-3.3-70b) = primary, fastest, cheapest
+ *   - OpenAI (gpt-4o-mini) = fallback only
+ *   Both imported from the unified `ai` package to avoid provider version conflicts.
  */
 
-import { generateText, streamText } from 'ai'
+import { generateText } from 'ai'
 import { createGroq } from '@ai-sdk/groq'
-import { createOpenAI } from '@ai-sdk/openai'
 import { remember, recall, dehydrate, rehydrate, logAction } from '@/lib/memory'
 
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY })
-const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// ── Providers ──────────────────────────────────────────────────────────────
+const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
 
+// OpenAI fallback: use dynamic import to isolate any provider type issues
+async function getOpenAIModel() {
+  const { createOpenAI } = await import('@ai-sdk/openai')
+  const client = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! })
+  return client('gpt-4o-mini')
+}
+
+// ── Identity ───────────────────────────────────────────────────────────────
 export const ARIA_ID = 'aria-chief-orchestrator'
 
 const ARIA_SYSTEM_PROMPT = `
@@ -51,11 +63,13 @@ across Arizona and all 50 states into XPS distributors and customers.
 - Always end with: what you did, what's next, what you need from Jeremy (if anything).
 `
 
+// ── Types ──────────────────────────────────────────────────────────────────
 export interface ARIAMessage {
   role: 'user' | 'assistant'
   content: string
 }
 
+// ── Core Chat ──────────────────────────────────────────────────────────────
 export async function chat(
   userMessage: string,
   history: ARIAMessage[] = [],
@@ -65,102 +79,112 @@ export async function chat(
   const session = await rehydrate(ARIA_ID)
   const recentContext = await recall(ARIA_ID, 'recent_context')
 
-  // Build context-aware system prompt
   const contextualPrompt = `${ARIA_SYSTEM_PROMPT}
-  
+
 ## Current Session Context
-${session ? `Phase: ${session.phase} | Step: ${session.step}` : 'New session'}
+${session ? `Phase: ${session.phase} | Step: ${session.step}` : 'New session — starting fresh.'}
 ${recentContext ? `Recent context: ${JSON.stringify(recentContext)}` : ''}
 Channel: ${channel}
 `
+  const messages = [
+    ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    { role: 'user' as const, content: userMessage },
+  ]
+
+  let response: string
 
   try {
-    // Use Groq for speed (primary)
+    // Primary: Groq — fast and cheap
     const result = await generateText({
       model: groq('llama-3.3-70b-versatile'),
       system: contextualPrompt,
-      messages: [
-        ...history.map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: userMessage }
-      ],
+      messages,
       maxTokens: 1024,
-      temperature: 0.7
+      temperature: 0.7,
     })
+    response = result.text
+  } catch (groqError) {
+    // Fallback: OpenAI
+    console.warn('Groq unavailable, falling back to OpenAI:', groqError)
+    const openaiModel = await getOpenAIModel()
+    const result = await generateText({
+      model: openaiModel,
+      system: contextualPrompt,
+      messages,
+      maxTokens: 1024,
+      temperature: 0.7,
+    })
+    response = result.text
+  }
 
-    const response = result.text
-
-    // Save to memory
-    await remember({
+  // Persist to memory (fire-and-forget — don't block response)
+  Promise.all([
+    remember({
       agent_id: ARIA_ID,
       memory_type: 'episodic',
-      key: `conversation_${Date.now()}`,
-      value: { user: userMessage, aria: response, channel, timestamp: new Date().toISOString() },
+      key: `conv_${Date.now()}`,
+      value: {
+        user: userMessage,
+        aria: response,
+        channel,
+        timestamp: new Date().toISOString(),
+      },
       tags: ['conversation', channel],
-      importance: 5
-    })
-
-    // Update session context
-    await remember({
+      importance: 5,
+    }),
+    remember({
       agent_id: ARIA_ID,
       memory_type: 'working',
       key: 'recent_context',
       value: {
         last_message: userMessage,
         last_response_preview: response.slice(0, 200),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       },
-      importance: 8
-    })
+      importance: 8,
+    }),
+  ]).catch(console.error)
 
-    return response
-
-  } catch (groqError) {
-    // Fallback to OpenAI
-    console.error('Groq failed, falling back to OpenAI:', groqError)
-
-    const result = await generateText({
-      model: openai('gpt-4o-mini'),
-      system: contextualPrompt,
-      messages: [
-        ...history.map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: userMessage }
-      ],
-      maxTokens: 1024,
-      temperature: 0.7
-    })
-
-    return result.text
-  }
+  return response
 }
 
-// Route a task to the appropriate sub-agent
-export async function route(task: string, context?: any): Promise<{
+// ── Task Router ────────────────────────────────────────────────────────────
+export interface RouteResult {
   agent: string
   action: string
   requires_approval: boolean
   level: 0 | 1 | 2 | 3 | 4
-}> {
-  const routingResult = await generateText({
-    model: groq('llama-3.3-70b-versatile'),
-    system: `You are a task router for Agent-Zero. 
-    Route tasks to the correct agent and determine autonomy level.
-    
-    Agents: discovery, intelligence, outreach, proposal, crm, memory, governance, reporting, builder
-    
-    Autonomy levels:
-    0 = read-only (auto-approved)
-    1 = drafting/planning (auto-approved)  
-    2 = sandbox execution (auto-approved)
-    3 = governed runtime (confirmation needed)
-    4 = protected live mutation (explicit Jeremy instruction required)
-    
-    Respond in JSON: {"agent": "name", "action": "description", "requires_approval": bool, "level": 0-4}`,
-    messages: [{ role: 'user', content: `Route this task: ${task}\nContext: ${JSON.stringify(context)}` }],
-    maxTokens: 256
-  })
+}
 
+export async function route(task: string, context?: unknown): Promise<RouteResult> {
   try {
-    return JSON.parse(routingResult.text)
+    const result = await generateText({
+      model: groq('llama-3.3-70b-versatile'),
+      system: `You are a task router for Agent-Zero.
+Route tasks to the correct sub-agent and determine autonomy level.
+
+Agents: discovery | intelligence | outreach | proposal | crm | memory | governance | reporting | builder | aria
+
+Autonomy levels:
+0 = read-only analysis (auto-approved)
+1 = drafting and planning (auto-approved)
+2 = safe sandbox execution (auto-approved)
+3 = governed runtime — confirmation needed
+4 = protected live mutation — explicit Jeremy instruction required
+
+Respond ONLY with valid JSON:
+{"agent":"name","action":"short description","requires_approval":false,"level":0}`,
+      messages: [
+        {
+          role: 'user',
+          content: `Route this task: ${task}\nContext: ${JSON.stringify(context ?? {})}`,
+        },
+      ],
+      maxTokens: 128,
+      temperature: 0.2,
+    })
+
+    return JSON.parse(result.text) as RouteResult
   } catch {
     return { agent: 'aria', action: task, requires_approval: true, level: 3 }
   }
