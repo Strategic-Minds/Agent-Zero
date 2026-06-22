@@ -1,108 +1,142 @@
 /**
- * AGENT ZERO — PARALLEL MULTI-AGENT ORCHESTRATOR v1.0
- * Fans tasks out to 8 sub-agents in parallel using Promise.all()
- * ChatGPT / OpenAI bridge included
+ * AGENT ZERO — PARALLEL MULTI-AGENT ORCHESTRATOR v2.0
+ * True fan-out: ALL agents fire simultaneously via Promise.all()
+ * 8 sub-agents: ARIA, Discovery, Intelligence, Outreach, GHOST, APEX, Validator, Benchmark
+ * Each agent call is a separate async fetch — no sequential blocking
  */
 
 export interface SubAgent {
-  id: string
-  name: string
-  role: string
-  capabilities: string[]
-  endpoint: string
-  model: string
-  priority: number
-  maxConcurrent: number
+  id: string; name: string; role: string
+  capabilities: string[]; endpoint: string
+  model: string; priority: number; maxConcurrent: number
 }
 
 export const SUB_AGENTS: SubAgent[] = [
-  { id: "aria", name: "ARIA", role: "Conversational intelligence, CRM queries, owner communication", capabilities: ["answer_questions","query_crm","send_whatsapp","memory_recall"], endpoint: "/api/aria", model: "groq-llama-8b", priority: 1, maxConcurrent: 3 },
-  { id: "discovery", name: "Discovery Agent", role: "Lead discovery, web scraping, company research", capabilities: ["find_leads","scrape_web","research_company"], endpoint: "/api/cron/lead-discovery", model: "gpt-4o-mini", priority: 2, maxConcurrent: 5 },
-  { id: "intelligence", name: "Intelligence Agent", role: "Lead scoring, profiling, market intelligence", capabilities: ["score_leads","profile_company","analyze_market"], endpoint: "/api/cron/lead-scoring", model: "gpt-4o-mini", priority: 2, maxConcurrent: 5 },
-  { id: "outreach", name: "Outreach Agent", role: "Personalized messaging, proposals, follow-ups", capabilities: ["write_pitch","send_followup","generate_proposal"], endpoint: "/api/cron/outreach-followup", model: "gpt-4o", priority: 3, maxConcurrent: 3 },
-  { id: "ghost", name: "GHOST Agent", role: "Headless web intelligence, competitor site cloning", capabilities: ["browse_web","clone_site","extract_data","competitive_intel"], endpoint: "/api/ghost", model: "gpt-4o-mini", priority: 3, maxConcurrent: 3 },
-  { id: "apex", name: "APEX Agent", role: "Autonomous coding, self-healing, GitHub operations", capabilities: ["write_code","fix_bugs","push_github","deploy"], endpoint: "/api/apex", model: "gpt-4o", priority: 2, maxConcurrent: 2 },
-  { id: "validator", name: "Validator Agent", role: "End-to-end testing, FAANG validation, triple-check", capabilities: ["run_tests","validate_deployment","triple_check"], endpoint: "/api/validate", model: "gpt-4o-mini", priority: 1, maxConcurrent: 1 },
-  { id: "benchmark", name: "Benchmark Agent", role: "Capability scoring, GAIA/SWE-bench testing", capabilities: ["run_benchmark","score_capabilities"], endpoint: "/api/benchmark", model: "gpt-4o-mini", priority: 3, maxConcurrent: 1 },
+  { id: "aria",         name: "ARIA",             role: "Conversational intelligence, CRM, owner comms",     capabilities: ["chat","crm","brief","memory"],                    endpoint: "/api/aria",         model: "llama-3.1-8b-instant", priority: 0, maxConcurrent: 5 },
+  { id: "discovery",   name: "Discovery",         role: "Real lead scraping — Google Maps, Yelp, AZ Registry", capabilities: ["scrape","leads","search","web"],                 endpoint: "/api/discovery",    model: "llama-3.1-8b-instant", priority: 1, maxConcurrent: 3 },
+  { id: "intelligence",name: "Intelligence",      role: "Lead scoring, profiling, market analysis",           capabilities: ["score","analyze","rank","profile"],               endpoint: "/api/intelligence",  model: "llama-3.1-70b-versatile", priority: 1, maxConcurrent: 3 },
+  { id: "outreach",    name: "Outreach",          role: "Personalized messaging, proposals, sequences",       capabilities: ["email","whatsapp","pitch","proposal"],            endpoint: "/api/outreach",     model: "llama-3.1-70b-versatile", priority: 2, maxConcurrent: 3 },
+  { id: "ghost",       name: "GHOST",             role: "Full site clone, shadow tech, competitor intel",      capabilities: ["clone","scrape","screenshot","pdf","shadow"],    endpoint: "/api/ghost",        model: "llama-3.1-70b-versatile", priority: 1, maxConcurrent: 2 },
+  { id: "apex",        name: "APEX",              role: "Autonomous coding, self-healing, GitHub ops",        capabilities: ["code","deploy","fix","build","push"],             endpoint: "/api/apex",         model: "llama-3.3-70b-versatile", priority: 1, maxConcurrent: 2 },
+  { id: "validator",   name: "Validator",         role: "End-to-end validation, FAANG testing",              capabilities: ["test","validate","benchmark","audit"],            endpoint: "/api/validate",     model: "llama-3.1-8b-instant", priority: 2, maxConcurrent: 2 },
+  { id: "benchmark",   name: "Benchmark",         role: "Capability scoring, performance analysis",          capabilities: ["benchmark","score","analyze","compare"],          endpoint: "/api/benchmark",    model: "llama-3.1-8b-instant", priority: 2, maxConcurrent: 2 },
 ]
 
 export interface OrchestratorTask {
-  id: string
-  agent_id: string
-  task: string
-  input: Record<string, unknown>
-  depends_on?: string[]
-  priority: number
+  id: string; agent_id: string; task: string
+  input: Record<string, unknown>; priority: number
 }
 
 export interface AgentResult {
-  task_id: string
-  agent_id: string
-  agent_name: string
-  success: boolean
-  output: unknown
-  latency_ms: number
-  error?: string
+  agent_id: string; agent_name: string; task: string
+  success: boolean; response: unknown
+  latency_ms: number; error?: string
 }
 
 export interface OrchestratorRun {
-  run_id: string
-  master_task: string
-  tasks: OrchestratorTask[]
-  results: AgentResult[]
+  run_id: string; master_task: string
+  tasks: OrchestratorTask[]; results: AgentResult[]
   synthesized_response: string
-  total_agents_used: number
-  parallel_groups: number
-  total_latency_ms: number
-  status: "completed" | "partial" | "failed"
+  total_agents_used: number; parallel_groups: number
+  total_latency_ms: number; status: string
 }
 
+// ── TASK ROUTER ────────────────────────────────────────────────────────────
 export function routeTaskToAgents(masterTask: string): OrchestratorTask[] {
   const lower = masterTask.toLowerCase()
   const tasks: OrchestratorTask[] = []
 
-  // ARIA always runs first — handles any task
+  // ARIA always fires
   tasks.push({ id: "t_aria", agent_id: "aria", task: masterTask, input: { message: masterTask, channel: "orchestrator" }, priority: 0 })
 
-  // Intelligence agent always runs — provides context scoring
-  tasks.push({ id: "t_intel", agent_id: "intelligence", task: "Analyze and assess: " + masterTask, input: { query: masterTask }, priority: 1 })
+  // Intelligence always fires — context + scoring
+  tasks.push({ id: "t_intel", agent_id: "intelligence", task: "Analyze: " + masterTask, input: { query: masterTask }, priority: 1 })
 
-  // Discovery agent runs for lead/business/search tasks OR generic system queries
-  if (/lead|prospect|find|discover|search|company|contact|status|check|brief|report|morning/i.test(lower)) {
-    tasks.push({ id: "t_disc", agent_id: "discovery", task: "Discover relevant data for: " + masterTask, input: { query: masterTask }, priority: 1 })
+  // Discovery for lead/search/business tasks
+  if (/lead|prospect|find|discover|search|company|contact|status|check|report|brief|morning|scrape/i.test(lower)) {
+    tasks.push({ id: "t_disc", agent_id: "discovery", task: "Discover: " + masterTask, input: { query: masterTask }, priority: 1 })
   }
 
-  // Research/competitive intel
-  if (/research|competitor|market|analyze|intel|landscape/i.test(lower)) {
-    tasks.push({ id: "t_ghost", agent_id: "ghost", task: "Research: " + masterTask, input: { query: masterTask }, priority: 1 })
-    tasks.push({ id: "t_apex_intel", agent_id: "apex", task: "Analyze: " + masterTask, input: { task: masterTask }, priority: 2 })
+  // GHOST for clone/research/competitor
+  if (/clone|shadow|copy|competitor|research|market|site|website|scrape|mirror/i.test(lower)) {
+    tasks.push({ id: "t_ghost", agent_id: "ghost", task: "Shadow: " + masterTask, input: { query: masterTask }, priority: 1 })
   }
 
-  // Outreach tasks
-  if (/email|message|pitch|proposal|outreach|follow|send/i.test(lower)) {
+  // Outreach for comms tasks
+  if (/email|message|pitch|proposal|outreach|follow|send|whatsapp/i.test(lower)) {
     tasks.push({ id: "t_outreach", agent_id: "outreach", task: masterTask, input: { task: masterTask }, priority: 1 })
   }
 
-  // Build/code tasks
-  if (/build|code|create|generate|fix|deploy|debug|implement/i.test(lower)) {
+  // APEX for code/build tasks
+  if (/build|code|create|generate|fix|deploy|debug|implement|write/i.test(lower)) {
     tasks.push({ id: "t_apex", agent_id: "apex", task: masterTask, input: { task: masterTask }, priority: 1 })
   }
 
-  // Validation tasks
-  if (/test|validate|check|verify|benchmark|audit/i.test(lower)) {
+  // Validator + Benchmark for test/audit tasks
+  if (/test|validate|check|verify|benchmark|audit|score/i.test(lower)) {
     tasks.push({ id: "t_val", agent_id: "validator", task: masterTask, input: { task: masterTask }, priority: 1 })
     tasks.push({ id: "t_bench", agent_id: "benchmark", task: masterTask, input: { task: masterTask }, priority: 2 })
   }
 
-  // Ensure minimum 2 agents always run for parallel execution proof
+  // Guarantee minimum 2 agents always (proves parallel execution)
   if (tasks.length < 2) {
-    tasks.push({ id: "t_bench_default", agent_id: "benchmark", task: "System status for: " + masterTask, input: { task: masterTask }, priority: 1 })
+    tasks.push({ id: "t_bench_default", agent_id: "benchmark", task: "System status: " + masterTask, input: { task: masterTask }, priority: 1 })
   }
 
   return tasks
 }
 
+// ── AGENT EXECUTOR ─────────────────────────────────────────────────────────
+async function executeAgentTask(task: OrchestratorTask, baseUrl: string): Promise<AgentResult> {
+  const agent = SUB_AGENTS.find(a => a.id === task.agent_id)
+  const start = Date.now()
+  try {
+    const res = await fetch(baseUrl + (agent?.endpoint || "/api/aria"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-chatgpt-action": "true" },
+      body: JSON.stringify(task.input),
+      signal: AbortSignal.timeout(25000),
+    })
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>
+    return {
+      agent_id: task.agent_id,
+      agent_name: agent?.name || task.agent_id,
+      task: task.task,
+      success: res.ok,
+      response: data,
+      latency_ms: Date.now() - start,
+    }
+  } catch (e) {
+    return {
+      agent_id: task.agent_id,
+      agent_name: agent?.name || task.agent_id,
+      task: task.task,
+      success: false,
+      response: null,
+      latency_ms: Date.now() - start,
+      error: String(e),
+    }
+  }
+}
 
+// ── SYNTHESIZER ────────────────────────────────────────────────────────────
+function synthesizeResults(masterTask: string, results: AgentResult[]): string {
+  const successful = results.filter(r => r.success)
+  if (successful.length === 0) return "All agents failed to respond. Check system health."
+
+  const parts: string[] = []
+  for (const r of successful) {
+    const data = r.response as Record<string, unknown>
+    const text = data?.response || data?.synthesized_response || data?.result || data?.message || data?.status
+    if (text && typeof text === "string" && text.length > 10) {
+      parts.push(`[${r.agent_name}]: ${text.slice(0, 200)}`)
+    }
+  }
+  if (parts.length === 0) return `${successful.length}/${results.length} agents responded. Task: ${masterTask}`
+  return parts.join(" | ")
+}
+
+// ── MAIN ORCHESTRATOR — TRUE PARALLEL FAN-OUT ──────────────────────────────
 export async function orchestrate(
   masterTask: string,
   options?: { agents?: string[]; baseUrl?: string; sessionId?: string }
@@ -110,23 +144,26 @@ export async function orchestrate(
   const run_id = "orch_" + Date.now()
   const start = Date.now()
   const baseUrl = options?.baseUrl || (process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "http://localhost:3000")
+
   let tasks = routeTaskToAgents(masterTask)
   if (options?.agents && options.agents.length > 0) {
     tasks = tasks.filter(t => options.agents!.includes(t.agent_id))
   }
-  const groups = groupByDependency(tasks)
-  const allResults: AgentResult[] = []
-  for (const group of groups) {
-    const groupResults = await Promise.all(group.map(task => executeAgentTask(task, baseUrl)))
-    allResults.push(...groupResults)
-  }
-  const synthesized = await synthesizeResults(masterTask, allResults)
+
+  // TRUE PARALLEL: all agents fire simultaneously
+  const allResults = await Promise.all(tasks.map(task => executeAgentTask(task, baseUrl)))
+
+  const synthesized = synthesizeResults(masterTask, allResults)
   const successCount = allResults.filter(r => r.success).length
+
   return {
-    run_id, master_task: masterTask, tasks, results: allResults,
+    run_id,
+    master_task: masterTask,
+    tasks,
+    results: allResults,
     synthesized_response: synthesized,
     total_agents_used: allResults.length,
-    parallel_groups: groups.length,
+    parallel_groups: 1,
     total_latency_ms: Date.now() - start,
     status: successCount === 0 ? "failed" : successCount < allResults.length ? "partial" : "completed",
   }
@@ -134,16 +171,14 @@ export async function orchestrate(
 
 export const CHATGPT_FUNCTION_SCHEMA = {
   name: "agent_zero_orchestrate",
-  description: "Orchestrate Agent Zero sub-agents (ARIA, Discovery, Intelligence, Outreach, GHOST, APEX) in parallel for XPS Intelligence",
+  description: "Orchestrate Agent Zero sub-agents in parallel (ARIA, Discovery, Intelligence, Outreach, GHOST, APEX, Validator, Benchmark)",
   parameters: {
     type: "object",
     properties: {
-      task: { type: "string", description: "The master task to delegate to Agent Zero" },
-      agents: { type: "array", items: { type: "string", enum: ["aria","discovery","intelligence","outreach","ghost","apex","validator","benchmark"] }, description: "Specific agents to use — optional, auto-routed if omitted" },
-      session_id: { type: "string", description: "Session ID for memory continuity" },
+      task: { type: "string" },
+      agents: { type: "array", items: { type: "string", enum: ["aria","discovery","intelligence","outreach","ghost","apex","validator","benchmark"] } },
+      session_id: { type: "string" },
     },
     required: ["task"],
   },
 }
-
-export const OPENAI_ASSISTANT_INSTRUCTIONS = "You are Agent Zero, the master orchestrator for Strategic Minds Advisory / XPS Intelligence. You coordinate 8 specialized AI agents: ARIA (conversational, CRM), Discovery (lead finding), Intelligence (scoring), Outreach (pitches/proposals), GHOST (web research), APEX (coding/GitHub), Validator (testing), Benchmark (scoring). Fan tasks out to agents in parallel. Serve Jeremy Bensen exclusively. Be proactive and strategic."
