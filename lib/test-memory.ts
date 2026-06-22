@@ -122,12 +122,11 @@ export async function upsertTestMemory(result: TestResult): Promise<TestMemoryEn
   const db = getSupabaseAdmin()
 
   // Load existing memory for this test
-  const { data: existing } = await db
-    .from("test_memory")
-    .select("*")
-    .eq("test_id", result.test_id)
-    .single()
-    .catch(() => ({ data: null }))
+  let existing: TestMemoryEntry | null = null
+  try {
+    const { data } = await db.from("test_memory").select("*").eq("test_id", result.test_id).single()
+    existing = data as TestMemoryEntry | null
+  } catch { existing = null }
 
   const now = new Date().toISOString()
   const prev = existing as TestMemoryEntry | null
@@ -247,7 +246,8 @@ export async function getTestMemory(testId: string): Promise<TestMemoryEntry | n
   if (_cache.has(testId)) return _cache.get(testId)!
   try {
     const db = getSupabaseAdmin()
-    const { data } = await db.from("test_memory").select("*").eq("test_id", testId).single()
+    const res = await db.from("test_memory").select("*").eq("test_id", testId).maybeSingle()
+    const data = res.data
     if (data) { _cache.set(testId, data as TestMemoryEntry); return data as TestMemoryEntry }
   } catch { /* */ }
   return null
