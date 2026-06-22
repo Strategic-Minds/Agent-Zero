@@ -1,32 +1,44 @@
 {
   "crons": [
     {
+      "path": "/api/cron/auto-loop",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-validate",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-heal",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/daily-briefing",
-      "schedule": "0 8 * * *"
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/cron/lead-discovery",
-      "schedule": "0 6 * * *"
+      "schedule": "0 11 * * *"
     },
     {
       "path": "/api/cron/lead-scoring",
-      "schedule": "0 7 * * *"
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/cron/outreach-followup",
-      "schedule": "0 9 * * 1-5"
+      "schedule": "0 14 * * 1-5"
     },
     {
       "path": "/api/cron/weekly-report",
-      "schedule": "0 8 * * 1"
+      "schedule": "0 13 * * 1"
     },
     {
       "path": "/api/cron/benchmark",
-      "schedule": "0 3 * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/auto-install",
-      "schedule": "0 2 * * *"
+      "schedule": "0 7 * * *"
     }
   ]
 }
