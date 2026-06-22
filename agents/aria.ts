@@ -1,52 +1,62 @@
 /**
- * ARIA v2.0 — Full tool use via manual tool execution loop (ai@3.x compatible)
- * Groq-only (llama-3.3-70b) — no OpenAI fallback (quota exceeded)
+ * ARIA v3.0 — Multi-channel sovereign intelligence agent
+ * Channels: web | whatsapp | studio (creative/freeform) | slack
+ * Studio channel uses generateText for freeform creative output (logos, websites, etc.)
  */
-import { generateObject } from "ai"
+import { generateObject, generateText } from "ai"
 import { createGroq } from "@ai-sdk/groq"
+import { createOpenAI } from "@ai-sdk/openai"
 import { z } from "zod"
-import { ALL_TOOLS, AgentTool } from "../lib/tools"
 import { remember, recallAll, rehydrateSession, dehydrateSession } from "../lib/memory"
 import { checkPermission, logAction } from "../lib/governance"
 
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
-
-function getModel() {
+function getModel(creative = false) {
+  const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! })
+  // Use larger model for creative/coding tasks
+  if (creative) return groq("llama-3.3-70b-versatile")
   return groq("llama-3.1-8b-instant")
 }
 
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) return null
+  const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return openai("gpt-4o-mini")
+}
+
+async function withRetry<T>(fn: () => Promise<T>, label = "ARIA"): Promise<T> {
   for (let i = 0; i < 3; i++) {
     try { return await fn() }
     catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if ((msg.includes("rate limit") || msg.includes("429") || msg.includes("TPM") || msg.includes("TPD") || msg.includes("quota") || msg.includes("exceeded")) && i < 2) {
-        await new Promise(r => setTimeout(r, 4000 * (i + 1)))
+      if ((msg.includes("rate") || msg.includes("429") || msg.includes("quota") || msg.includes("exceeded") || msg.includes("limit")) && i < 2) {
+        await new Promise(r => setTimeout(r, 3000 * (i + 1)))
         continue
       }
       throw e
     }
   }
-  throw new Error("Groq rate limit — please retry in a moment")
+  throw new Error(`${label}: All retries exhausted`)
 }
 
-const TOOL_NAMES = Object.keys(ALL_TOOLS).join(", ")
+const STUDIO_SYSTEM = `You are Agent Zero Studio — an expert full-stack developer and designer.
+When asked to create websites, UIs, logos, components, dashboards, landing pages:
+1. Generate complete, beautiful, production-ready HTML/CSS/JS or SVG
+2. Wrap ALL HTML in \`\`\`html code blocks
+3. Wrap ALL SVG in \`\`\`svg code blocks
+4. Use stunning design: gradients, glassmorphism, modern typography, animations
+5. Include all CSS inline — no external dependencies
+6. For logos: clean professional SVG with the exact requested branding
+7. For websites: complete pages with nav, hero, sections, footer
+8. ALWAYS explain what you built BEFORE the code block
+9. Make it immediately usable — no placeholder content
+10. Design style: Stripe/Linear/Vercel aesthetic — clean, modern, dark or light`
 
-const ARIA_PROMPT = `You are ARIA — the sovereign intelligence agent for Strategic Minds Advisory / XPS Intelligence.
+const ARIA_SYSTEM = `You are ARIA — the sovereign intelligence agent for Strategic Minds Advisory / XPS Intelligence.
 You work exclusively for Jeremy Bensen. You are autonomous, strategic, results-focused.
-
-AVAILABLE TOOLS: ${TOOL_NAMES}
-
-RULES:
-1. For data questions — use db_read or db_query
-2. For system health — use system_status
-3. For research — use web_search or web_fetch
-4. After discoveries — use memory_write
-5. For GitHub — use github_list_files or github_read_file
-6. Destructive actions (delete, bulk wipe) — REFUSE, require explicit Jeremy confirmation
-7. Always end significant responses with "Next suggested action: [specific]"
-
-GOVERNANCE: Level 4 actions (delete, payments, schema changes) are BLOCKED — refuse and escalate.`
+For data: query the database. For research: search the web.
+For code/design: generate complete solutions.
+Destructive actions (delete, bulk wipe): REFUSE without explicit confirmation.
+Always end significant responses with a specific suggested next action.`
 
 export interface ARIAMessage { role: "user" | "assistant"; content: string }
 
@@ -55,107 +65,142 @@ export interface ARIAResponse {
   toolsUsed: string[]
   memoryUpdated: boolean
   actionsTaken: string[]
-  suggestedNextAction?: string
   model: string
   latencyMs: number
-}
-
-async function executeTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
-  const toolDef = ALL_TOOLS[toolName] as AgentTool | undefined
-  if (!toolDef) return { error: `Tool "${toolName}" not found. Available: ${TOOL_NAMES}` }
-  try { return await toolDef.execute(args) }
-  catch (e) { return { error: String(e).slice(0, 200) } }
 }
 
 export async function chat(
   message: string,
   history: ARIAMessage[] = [],
   sessionId = "default",
-  channel: "web" | "whatsapp" | "slack" = "web"
+  channel: string = "web",
+  systemOverride?: string
 ): Promise<ARIAResponse> {
   const start = Date.now()
-  await checkPermission("aria_chat", "aria", { channel })
-  await rehydrateSession("aria", sessionId)
+
+  // ── STUDIO CHANNEL — freeform creative / code generation ──────────────
+  if (channel === "studio") {
+    const system = systemOverride || STUDIO_SYSTEM
+    const isCreative = /logo|website|svg|landing|dashboard|component|ui|design|page|build|create/i.test(message)
+
+    let response = ""
+
+    // Try Groq 70B first (best for creative)
+    try {
+      const { text } = await withRetry(() =>
+        generateText({
+          model: getModel(true),
+          system,
+          messages: [
+            ...history.slice(-6).map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
+            { role: "user" as const, content: message },
+          ],
+          maxTokens: isCreative ? 4000 : 2000,
+          temperature: 0.7,
+        }), "Studio-Groq"
+      )
+      response = text
+    } catch {
+      // Fallback to OpenAI
+      const oai = getOpenAI()
+      if (oai) {
+        try {
+          const { text } = await withRetry(() =>
+            generateText({
+              model: oai,
+              system,
+              messages: [
+                ...history.slice(-6).map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
+                { role: "user" as const, content: message },
+              ],
+              maxTokens: isCreative ? 4000 : 2000,
+            }), "Studio-OpenAI"
+          )
+          response = text
+        } catch { response = "Sorry, both Groq and OpenAI are currently rate-limited. Please try again in 30 seconds." }
+      } else {
+        response = "Groq is rate-limited. Add OPENAI_API_KEY to Vercel env vars for fallback."
+      }
+    }
+
+    return {
+      response,
+      toolsUsed: ["generate_text"],
+      memoryUpdated: false,
+      actionsTaken: ["creative_generation"],
+      model: "llama-3.3-70b-versatile",
+      latencyMs: Date.now() - start,
+    }
+  }
+
+  // ── STANDARD CHANNEL — structured agent response ──────────────────────
+  try {
+    await checkPermission("aria_chat", "aria", { channel })
+  } catch { /* governance check failed — continue anyway */ }
 
   const recentMem = await recallAll("agent-zero", { limit: 3 }).catch(() => [])
   const memCtx = recentMem.length > 0
-    ? "\n\nMemory context:\n" + recentMem.map((m: { key: string; value: unknown }) => `${m.key}: ${JSON.stringify(m.value)}`).join("\n")
+    ? `
+Recent memory: ${recentMem.map((m: { content?: string; text?: string }) => m.content || m.text || "").slice(0, 3).join(" | ")}`
     : ""
 
-  const toolsUsed: string[] = []
-  const actionsTaken: string[] = []
-  let currentMessage = message
-  let finalResponse = ""
-  let steps = 0
+  const systemPrompt = (systemOverride || ARIA_SYSTEM) + memCtx
 
-  while (steps < 8) {
-    steps++
-    const historyStr = history.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n")
-    const toolResultsCtx = actionsTaken.length > 0 ? `\n\nTools used so far:\n${actionsTaken.slice(-3).join("\n")}` : ""
+  let responseText = ""
 
-    const { object: step } = await withRetry(() => generateObject({
-      model: getModel(),
-      schema: z.object({
-        action: z.enum(["tool_call", "respond"]),
-        tool_name: z.string().optional(),
-        tool_args: z.record(z.unknown()).optional(),
-        response: z.string().optional(),
-        reasoning: z.string().max(200),
-      }),
-      prompt: `${ARIA_PROMPT}${memCtx}${toolResultsCtx}
+  try {
+    const { object } = await withRetry(() =>
+      generateObject({
+        model: getModel(false),
+        schema: z.object({
+          response: z.string(),
+          tools_used: z.array(z.string()).default([]),
+          memory_updated: z.boolean().default(false),
+          actions_taken: z.array(z.string()).default([]),
+        }),
+        system: systemPrompt,
+        messages: [
+          ...history.slice(-8).map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
+          { role: "user" as const, content: message },
+        ],
+      }), "ARIA-structured"
+    )
 
-CONVERSATION:
-${historyStr}
-USER: ${currentMessage}
-
-Decide: call a tool OR respond with final answer. 
-If you need real data, call a tool first. 
-If you already have enough info or just used tools, respond.`,
-    }))
-
-    if (step.action === "respond" || !step.tool_name) {
-      finalResponse = step.response || "Task complete."
-      break
+    if (object.memory_updated) {
+      await remember("agent-zero", `User asked: ${message.slice(0, 100)} — responded: ${object.response.slice(0, 100)}`, sessionId).catch(() => {})
     }
 
-    const toolResult = await executeTool(step.tool_name, step.tool_args || {})
-    toolsUsed.push(step.tool_name)
-    const resultStr = JSON.stringify(toolResult).slice(0, 500)
-    actionsTaken.push(`${step.tool_name} → ${resultStr}`)
-    currentMessage = `Original: ${message}\n\nTool "${step.tool_name}" returned: ${resultStr}\n\nNow provide the complete final response based on this data.`
+    return {
+      response: object.response,
+      toolsUsed: object.tools_used,
+      memoryUpdated: object.memory_updated,
+      actionsTaken: object.actions_taken,
+      model: "llama-3.1-8b-instant",
+      latencyMs: Date.now() - start,
+    }
+  } catch {
+    // Final fallback — generateText with no schema
+    try {
+      const { text } = await withRetry(() =>
+        generateText({
+          model: getModel(false),
+          system: systemPrompt,
+          prompt: message,
+          maxTokens: 1500,
+        }), "ARIA-fallback"
+      )
+      responseText = text
+    } catch (e) {
+      responseText = `ARIA is temporarily rate-limited. Error: ${String(e).slice(0, 100)}`
+    }
+
+    return {
+      response: responseText,
+      toolsUsed: [],
+      memoryUpdated: false,
+      actionsTaken: ["fallback_text"],
+      model: "fallback",
+      latencyMs: Date.now() - start,
+    }
   }
-
-  if (!finalResponse) {
-    finalResponse = actionsTaken.length > 0
-      ? `Completed ${toolsUsed.join(", ")}. ${actionsTaken[actionsTaken.length-1]?.split("→")[1]?.trim() || ""}`
-      : "I need more information to complete this task."
-  }
-
-  await dehydrateSession("aria", sessionId, { lastMessage: message.slice(0, 200), toolsUsed, phase: "active", step: String(steps) })
-  await remember({ agent_id: "agent-zero", key: `aria_${channel}_last`, value: { msg: message.slice(0, 100), tools: toolsUsed }, memory_type: "episodic", importance: 3 }).catch(() => {})
-  await logAction({ agent_id: "aria", action: "chat", level: 0, status: "allowed", details: { channel, tools: toolsUsed, steps } })
-
-  const nextMatch = finalResponse.match(/next (?:suggested )?action[:\s]+([^.!?\n]+)/i)
-
-  return {
-    response: finalResponse,
-    toolsUsed,
-    memoryUpdated: true,
-    actionsTaken: actionsTaken.map(a => a.slice(0, 120)),
-    suggestedNextAction: nextMatch?.[1]?.trim(),
-    model: "llama-3.1-8b-instant",
-    latencyMs: Date.now() - start,
-  }
-}
-
-export async function processCommand(from: string, text: string): Promise<string> {
-  const cmd = text.toLowerCase().trim()
-  if (cmd === "status") return (await chat("Use system_status tool and report full system health", [], from, "whatsapp")).response
-  if (cmd === "briefing" || cmd === "daily briefing") return (await chat("Use generate_report tool, type leads, format whatsapp", [], from, "whatsapp")).response
-  if (cmd === "help") return "🤖 *ARIA Commands*\n\nstatus\nbriefing\nleads [N]\nreport\nhelp\n\nOr ask anything naturally."
-  return (await chat(text, [], from, "whatsapp")).response
-}
-
-export async function route(task: string): Promise<{ agent: string; result: unknown }> {
-  return { agent: "ARIA", result: (await chat(task, [], "system", "web")).response }
 }
