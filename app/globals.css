@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-dark: #33475b;
+  --brand-orange: #ff7a59;
+  --brand-teal: #0091ae;
+  --brand-light: #f5f8fa;
+}
+
+body {
+  background-color: var(--brand-light);
+  color: var(--brand-dark);
+}
