@@ -630,9 +630,9 @@ export async function executeTest(test: TestCase, baseUrl: string, runId: string
       result = await humanFetch(baseUrl + "/api/cron/auto-validate", { headers: { "x-cron-secret": CS }, timeout: 90000 })
     }
 
-    // SH_01: with secret
+    // SH_01: auto-heal with secret
     if (test.id === "SH_01") {
-      result = await humanFetch(baseUrl + "/api/cron/auto-heal", { headers: { "x-cron-secret": CS }, timeout: 45000 })
+      result = await humanFetch(baseUrl + "/api/cron/auto-heal", { headers: { "x-cron-secret": CS, "authorization": "Bearer " + CS }, timeout: 45000 })
     }
 
     // PERF_03: 5 concurrent requests
