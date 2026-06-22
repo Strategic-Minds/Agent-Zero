@@ -102,3 +102,13 @@ Choose the agent and format the exact params needed.`,
     result,
   })
 }
+
+export async function GET(req: NextRequest) {
+  if (!auth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return NextResponse.json({
+    agent: 'COMMAND',
+    status: 'operational',
+    description: 'Universal NL command router — routes any instruction to the correct agent',
+    agents: ['ghost', 'discovery', 'intelligence', 'outreach', 'aria', 'bridge'],
+  })
+}
