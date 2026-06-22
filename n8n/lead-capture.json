@@ -1,0 +1,74 @@
+{
+  "name": "Agent Zero — Lead Capture & Score",
+  "nodes": [
+    {
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-capture",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "name": "Score Lead with ARIA",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [500, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_ZERO_URL }}/api/aria",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameter": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={"message": "Score this new lead and decide priority tier: {{ $json.company_name }}, {{ $json.phone }}, {{ $json.city }}, type: {{ $json.category }}", "channel": "n8n"}"
+      }
+    },
+    {
+      "name": "Save to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [750, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_ZERO_URL }}/api/bridge",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameter": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer {{ $env.BRIDGE_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={"command": "supabase.insert", "table": "companies", "data": {{ $json }}}"
+      }
+    },
+    {
+      "name": "WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1000, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameter": [
+            { "name": "Authorization", "value": "Bearer {{ $env.WHATSAPP_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "{"messaging_product":"whatsapp","to":"{{ $env.OWNER_PHONE }}","type":"text","text":{"body":"🎯 New lead scored: {{ $('Score Lead with ARIA').json.response }}"}}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Score Lead with ARIA", "type": "main", "index": 0 }]] },
+    "Score Lead with ARIA": { "main": [[{ "node": "Save to CRM", "type": "main", "index": 0 }]] },
+    "Save to CRM": { "main": [[{ "node": "WhatsApp Alert", "type": "main", "index": 0 }]] }
+  }
+}
