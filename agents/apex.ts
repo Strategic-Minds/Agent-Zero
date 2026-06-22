@@ -22,6 +22,7 @@
 
 import { generateText, generateObject } from 'ai'
 import { createGroq } from '@ai-sdk/groq'
+import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { logAction, remember, recall } from '@/lib/memory'
@@ -38,18 +39,25 @@ function getModel() {
 const model = groq('llama-3.3-70b-versatile')
 const model8b = groq('llama-3.1-8b-instant')
 
-// Retry with backoff on rate limit errors
-async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelay = 5000): Promise<T> {
+// Provider switching — Groq primary, OpenAI fallback when rate limited
+let useOpenAI = false
+function getOpenAIModel(size: 'big' | 'small' = 'big') {
+  const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
+  return size === 'big' ? openai('gpt-4o-mini') : openai('gpt-4o-mini')
+}
+
+// Retry with provider fallback
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelay = 2000): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn()
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      const isRateLimit = msg.includes('Rate limit') || msg.includes('429') || msg.includes('TPM')
+      const isRateLimit = msg.includes('Rate limit') || msg.includes('429') || msg.includes('TPM') || msg.includes('TPD')
       if (isRateLimit && attempt < maxAttempts) {
-        const delay = baseDelay * attempt
-        await new Promise(r => setTimeout(r, delay))
-        modelIdx++ // rotate model
+        console.log('[APEX] Groq rate limit hit — switching to OpenAI fallback')
+        useOpenAI = true // flip to OpenAI for remaining calls
+        await new Promise(r => setTimeout(r, baseDelay))
         continue
       }
       throw e
@@ -672,7 +680,7 @@ export async function autonomousTest(files: Array<{ path: string; content: strin
   for (const file of files) {
     await new Promise(r => setTimeout(r, 2000)) // 2s delay between files to avoid TPM
     const { object } = await withRetry(() => generateObject({
-      model: model8b,
+      model: useOpenAI ? getOpenAIModel() : _groq8b,
       schema: z.object({
         tests: z.array(z.object({
           category: z.enum(['navigation', 'forms', 'performance', 'seo', 'accessibility', 'security', 'api', 'mobile']),
@@ -740,7 +748,7 @@ export async function autoHeal(
     if (!relevantFixes.length) continue
 
     const { text: healed_content } = await withRetry(() => generateText({
-      model: model8b,
+      model: useOpenAI ? getOpenAIModel() : _groq8b,
       prompt: `You are a senior engineer doing a targeted code fix. 
 
 FILE: ${file.path}
