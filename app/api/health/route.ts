@@ -1,29 +1,39 @@
+/**
+ * /api/health — Comprehensive health check with live AI ping
+ */
 import { NextResponse } from "next/server";
-export const dynamic = "force-dynamic";
+import { aiChat, aiProviderStatus } from "@/lib/ai";
+
+export const dynamic    = "force-dynamic";
+export const maxDuration = 20;
 
 export async function GET() {
-  const uptimeSec = Math.floor(process.uptime ? process.uptime() : 0);
+  const start = Date.now();
+  const prov  = aiProviderStatus();
+
+  // Live AI ping
+  let aiOk = false;
+  let aiMs = 0;
+  try {
+    const t0  = Date.now();
+    const res = await aiChat("You are a health check.", "Reply OK", { maxTokens: 5 });
+    aiMs = Date.now() - t0;
+    aiOk = res.provider !== "static";
+  } catch { aiOk = false; }
+
+  const healthy = aiOk;
+
   return NextResponse.json({
-    status: "ok",
-    version: "6.3.4",
-    uptime: uptimeSec,
-    uptime_human: uptimeSec + "s",
-    environment: process.env.NODE_ENV || "production",
+    status:    healthy ? "healthy" : "degraded",
+    ok:        healthy,
+    version:   "7.2.0",
     timestamp: new Date().toISOString(),
-    features: {
-      ai_scoring: !!(process.env.VERCEL_OIDC_TOKEN || process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY),
-      whatsapp: !!(process.env.TWILIO_ACCOUNT_SID),
-      supabase: !!(process.env.NEXT_PUBLIC_SUPABASE_URL),
+    checks: {
+      api:         { status: "pass" },
+      ai_provider: { status: aiOk ? "pass" : "fail", provider: prov.active_provider, latency_ms: aiMs },
+      groq:        { status: prov.groq ? "pass" : "fail" },
+      openai:      { status: prov.openai ? "pass" : "fail" },
     },
-    endpoints: {
-      aria: "/api/aria",
-      audit: "/api/audit",
-      validate: "/api/validate",
-      intelligence: "/api/intelligence",
-      metrics: "/api/metrics",
-      revenue: "/api/revenue",
-      stream: "/api/stream",
-      schema: "/api/schema/validate",
-    },
-  });
+    latency_ms: Date.now() - start,
+  }, { status: healthy ? 200 : 503 });
 }
