@@ -116,8 +116,8 @@ function dedupe(leads: DiscoveredLead[]): DiscoveredLead[] {
 // ── Main export ──────────────────────────────────────────────────────────
 export async function runXPSDiscovery(options: {
   niche?: string; location?: string; limit?: number
-} = {}): Promise<{ discovered: number; saved: number; leads: DiscoveredLead[] }> {
-  const { niche = "epoxy flooring contractor", location = "Arizona", limit = 50 } = options
+, maxLeads?: number } = {}): Promise<{ discovered: number; saved: number; leads: DiscoveredLead[] }> {
+  const { niche = "epoxy flooring contractor", location = "Arizona", limit = options.limit ?? options.maxLeads ?? 50 } = options
 
   const [azRes, googleRes, yelpRes] = await Promise.allSettled([
     scrapeAZCorpComm(niche),
