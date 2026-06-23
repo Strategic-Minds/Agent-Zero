@@ -18,12 +18,12 @@ export async function GET(req: NextRequest) {
     const report = await runHumanValidation(base, { priorities: ["P0"], maxTests: 20 })
     runs.push({
       run: i + 1,
-      score: report.score,
-      grade: report.grade,
+      score: report.overall_score,
+      grade: report.faang_grade,
       passed: report.passed,
       failed: report.failed,
       p0_failures: report.p0_failures,
-      cleared: report.deployment_approved,
+      cleared: report.url_cleared,
     })
     if (i < 2) await new Promise(r => setTimeout(r, 2000))
   }
