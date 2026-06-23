@@ -1,7 +1,6 @@
 /**
- * VERCEL AI GATEWAY - Central AI client
- * Uses Vercel AI SDK (already installed)
- * Priority: Vercel AI Gateway (OIDC) > Groq SDK > OpenAI SDK > static
+ * AI CLIENT — Vercel AI Gateway primary
+ * Priority: AI_GATEWAY_API_KEY (Vercel Gateway) > GROQ_API_KEY > OPENAI_API_KEY > static
  */
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -18,14 +17,13 @@ export interface AIResponse {
   provider: "vercel_gateway" | "groq" | "openai" | "static";
 }
 
-// Vercel AI Gateway - uses VERCEL_OIDC_TOKEN auto-injected by Vercel
-// Compatible endpoint with OpenAI SDK format
 function getGatewayProvider() {
-  const token = process.env.VERCEL_OIDC_TOKEN;
-  if (!token) return null;
+  const key = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
+  if (!key) return null;
+  // Vercel AI Gateway is OpenAI-compatible
   return createOpenAI({
     baseURL: "https://ai.vercel.app/api/v1",
-    apiKey: token,
+    apiKey: key,
   });
 }
 
@@ -46,21 +44,18 @@ export async function ai(
   options: { model?: string; maxTokens?: number } = {}
 ): Promise<AIResponse> {
   const maxTokens = options.maxTokens ?? 500;
+  const model = options.model ?? "gpt-4o-mini";
 
-  // 1. Try Vercel AI Gateway first
+  // 1. Vercel AI Gateway (AI_GATEWAY_API_KEY)
   const gateway = getGatewayProvider();
   if (gateway) {
     try {
-      const { text } = await generateText({
-        model: gateway(options.model ?? "gpt-4o-mini"),
-        messages,
-        maxTokens,
-      });
-      return { content: text, model: options.model ?? "gpt-4o-mini", provider: "vercel_gateway" };
+      const { text } = await generateText({ model: gateway(model), messages, maxTokens });
+      return { content: text, model, provider: "vercel_gateway" };
     } catch { /* fall through */ }
   }
 
-  // 2. Groq fallback (GROQ_API_KEY is set in Vercel)
+  // 2. Groq (fast, free)
   const groq = getGroqProvider();
   if (groq) {
     try {
@@ -77,17 +72,12 @@ export async function ai(
   const oai = getOpenAIProvider();
   if (oai) {
     try {
-      const { text } = await generateText({
-        model: oai(options.model ?? "gpt-4o-mini"),
-        messages,
-        maxTokens,
-      });
-      return { content: text, model: options.model ?? "gpt-4o-mini", provider: "openai" };
+      const { text } = await generateText({ model: oai(model), messages, maxTokens });
+      return { content: text, model, provider: "openai" };
     } catch { /* fall through */ }
   }
 
-  // 4. Static fallback
-  return { content: "AI unavailable - please try again shortly.", model: "static", provider: "static" };
+  return { content: "AI unavailable — please try again shortly.", model: "static", provider: "static" };
 }
 
 export async function aiChat(
@@ -99,8 +89,7 @@ export async function aiChat(
 }
 
 export async function aiText(system: string, user: string): Promise<string> {
-  const r = await aiChat(system, user);
-  return r.content;
+  return (await aiChat(system, user)).content;
 }
 
 export async function aiJSON<T = Record<string, unknown>>(
@@ -108,23 +97,18 @@ export async function aiJSON<T = Record<string, unknown>>(
   user: string,
   fallback: T
 ): Promise<T> {
-  const jsonSystem = system + "\n\nReturn ONLY valid JSON. No markdown, no explanation.";
   const r = await ai(
-    [{ role: "system", content: jsonSystem }, { role: "user", content: user }],
+    [{ role: "system", content: system + "\n\nReturn ONLY valid JSON. No markdown." },
+     { role: "user", content: user }],
     { maxTokens: 600 }
   );
   try { return JSON.parse(r.content) as T; } catch { return fallback; }
 }
 
-export function aiProviderStatus(): {
-  vercel_gateway: boolean;
-  groq: boolean;
-  openai: boolean;
-  active_provider: string;
-} {
-  const gw = !!process.env.VERCEL_OIDC_TOKEN;
-  const groq = !!process.env.GROQ_API_KEY;
-  const oai = !!process.env.OPENAI_API_KEY;
+export function aiProviderStatus() {
+  const gw   = !!(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
+  const groq  = !!process.env.GROQ_API_KEY;
+  const oai   = !!process.env.OPENAI_API_KEY;
   return {
     vercel_gateway: gw,
     groq,
