@@ -245,5 +245,6 @@ export async function orchestrate(
       error: r.error,
     })),
     parallel_groups: 1,
+    total_latency_ms: result.duration_ms,
   }
 }
