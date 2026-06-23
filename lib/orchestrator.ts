@@ -179,3 +179,42 @@ export async function logOrchestration(data: {
     await db.from("orchestration_logs" as any).upsert(data)
   } catch { /* non-fatal */ }
 }
+
+// ── Legacy exports for backward compatibility ────────────────────────────
+export const SUB_AGENTS = AGENTS  // alias
+
+export const OPENAI_ASSISTANT_INSTRUCTIONS = `You are ARIA, Agent Zero's primary AI interface for Xtreme Polishing Systems (XPS). You have access to 10 specialized sub-agents: Discovery (real web scraping), Intelligence (lead scoring), Outreach (WhatsApp/email), GHOST (competitor intel), APEX (code generation), Reporter (briefings), Optimizer (auto-fix), Validator (testing), Reflection (health scoring), and Evolution (self-improvement). You coordinate these agents to help Jeremy close more epoxy/concrete flooring deals across Arizona. Always provide actionable next steps. Current system version: 5.4.0.`
+
+export const CHATGPT_FUNCTION_SCHEMA = {
+  name: "route_to_agent",
+  description: "Route a user request to the appropriate Agent Zero sub-agent",
+  parameters: {
+    type: "object",
+    properties: {
+      agent_id: {
+        type: "string",
+        enum: AGENTS.map(a => a.id),
+        description: "The agent to route this request to",
+      },
+      message: {
+        type: "string",
+        description: "The message or task to pass to the agent",
+      },
+      priority: {
+        type: "string",
+        enum: ["high", "normal", "low"],
+        description: "Priority of this request",
+      },
+    },
+    required: ["agent_id", "message"],
+  },
+}
+
+// Legacy: single-agent orchestrate wrapper
+export async function orchestrate(
+  message: string,
+  preferredAgent = "aria",
+  context: Record<string, unknown> = {}
+) {
+  return orchestrateParallel(message, [preferredAgent], context)
+}
