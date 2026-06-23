@@ -67,16 +67,16 @@ export function cacheSet(key: string, value: unknown, ttlMs = 300000) {
 
 // ── Agent registry ───────────────────────────────────────────────────────
 export const AGENTS = [
-  { id: "aria",        name: "ARIA",        role: "AI assistant + chat interface",              active: true,  capabilities: ["chat","reason","analyze","summarize"] },
-  { id: "discovery",   name: "DISCOVERY",   role: "Real web scraping — AZ contractors",         active: true,  capabilities: ["scrape","lead_gen","deduplicate"] },
-  { id: "intelligence",name: "INTELLIGENCE",role: "AI lead scoring + profile generation",       active: true,  capabilities: ["score","profile","rank","pitch"] },
-  { id: "outreach",    name: "OUTREACH",    role: "WhatsApp + email campaign automation",       active: true,  capabilities: ["send","schedule","personalize"] },
-  { id: "ghost",       name: "GHOST",       role: "Shadow site cloner + competitor intel",      active: true,  capabilities: ["clone","scrape","competitive_analysis"] },
-  { id: "apex",        name: "APEX",        role: "Autonomous code generation + self-healing",  active: true,  capabilities: ["generate","heal","test","push_github"] },
-  { id: "reporter",    name: "REPORTER",    role: "Daily briefing + email reports",             active: true,  capabilities: ["report","email","summarize"] },
-  { id: "optimizer",   name: "OPTIMIZER",   role: "Gap-to-fix autonomous loop (hourly)",        active: true,  capabilities: ["audit","fix","heal","harden","evolve"] },
-  { id: "validator",   name: "VALIDATOR",   role: "30-test headless validation suite",          active: true,  capabilities: ["validate","score","triple_check"] },
-  { id: "reflection",  name: "REFLECTION",  role: "Self-reflection + health scoring",           active: true,  capabilities: ["reflect","health_score","trend"] },
+  { id: "aria",        name: "ARIA",        role: "AI assistant + chat interface",              active: true,  endpoint: "/api/aria",        capabilities: ["chat","reason","analyze","summarize"] },
+  { id: "discovery",   name: "DISCOVERY",   role: "Real web scraping — AZ contractors",         active: true,  endpoint: "/api/discovery",   capabilities: ["scrape","lead_gen","deduplicate"] },
+  { id: "intelligence",name: "INTELLIGENCE",role: "AI lead scoring + profile generation",       active: true,  endpoint: "/api/intelligence",capabilities: ["score","profile","rank","pitch"] },
+  { id: "outreach",    name: "OUTREACH",    role: "WhatsApp + email campaign automation",       active: true,  endpoint: "/api/outreach",    capabilities: ["send","schedule","personalize"] },
+  { id: "ghost",       name: "GHOST",       role: "Shadow site cloner + competitor intel",      active: true,  endpoint: "/api/ghost",       capabilities: ["clone","scrape","competitive_analysis"] },
+  { id: "apex",        name: "APEX",        role: "Autonomous code generation + self-healing",  active: true,  endpoint: "/api/apex",        capabilities: ["generate","heal","test","push_github"] },
+  { id: "reporter",    name: "REPORTER",    role: "Daily briefing + email reports",             active: true,  endpoint: "/api/reporter",    capabilities: ["report","email","summarize"] },
+  { id: "optimizer",   name: "OPTIMIZER",   role: "Gap-to-fix autonomous loop (hourly)",        active: true,  endpoint: "/api/cron/optimize",capabilities: ["audit","fix","heal","harden","evolve"] },
+  { id: "validator",   name: "VALIDATOR",   role: "30-test headless validation suite",          active: true,  endpoint: "/api/validate",    capabilities: ["validate","score","triple_check"] },
+  { id: "reflection",  name: "REFLECTION",  role: "Self-reflection + health scoring",           active: true,  endpoint: "/api/sop",         capabilities: ["reflect","health_score","trend"] },
 ]
 
 export interface OrchResult {
