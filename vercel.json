@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/optimize",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/auto-loop",
       "schedule": "*/5 * * * *"
     },
