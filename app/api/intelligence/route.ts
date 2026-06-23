@@ -1,80 +1,62 @@
 /**
- * INTELLIGENCE AGENT — Vercel AI Gateway Lead Scoring
- * Uses Vercel AI Gateway (no direct OpenAI key needed)
- * Upgrades AI Intelligence dimension from 45 → 90+
+ * INTELLIGENCE AGENT — GPT-4o Lead Scoring via Vercel AI Gateway
+ * No OpenAI key needed — uses Vercel AI Gateway (OIDC auto-auth)
+ * Falls back: Gateway → Groq → OpenAI → heuristic scoring
  */
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase"
+import { aiJSON, aiProviderStatus } from "@/lib/ai"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
 
-const SCORING_PROMPT = `You are an expert B2B sales analyst for Xtreme Polishing Systems (XPS), a commercial epoxy flooring and concrete polishing company in Arizona.
+const SCORING_SYSTEM = `You are an expert B2B sales analyst for Xtreme Polishing Systems (XPS), a commercial epoxy flooring and concrete polishing company in Arizona.
 
-Score the following business as a potential XPS customer on a 0-100 scale based on:
-- Industry fit (warehouses, auto shops, restaurants, retail = high value)
-- Company size signals (larger = higher value)
-- Location (Arizona = highest, neighboring states = medium)
+Score this business as a potential XPS customer (0-100) based on:
+- Industry fit: warehouses, auto shops, restaurants, retail, gyms, hotels = high
+- Arizona location = highest priority
+- Company size signals
 - Decision-maker accessibility
-- Revenue potential for XPS
+- Estimated flooring square footage
 
 Return ONLY valid JSON:
 {
   "score": <0-100>,
   "tier": <"A"|"B"|"C"|"D">,
-  "reasoning": "<2 sentences>",
-  "pitch": "<personalized opening line for cold outreach>",
+  "reasoning": "<2 sentences max>",
+  "pitch": "<personalized opening line for WhatsApp outreach>",
   "next_action": "<specific recommended action>",
-  "estimated_deal_value": <number in dollars>
+  "estimated_deal_value": <number in USD>
 }`
 
-async function scoreWithAI(company: {
-  company_name: string; city?: string; category_guess?: string; raw_notes?: string
-}): Promise<{
-  score: number; tier: string; reasoning: string; pitch: string; next_action: string; estimated_deal_value: number
-} | null> {
-  const gateway_token = process.env.VERCEL_AI_GATEWAY_TOKEN || process.env.OPENAI_API_KEY
-  if (!gateway_token) return null
-
-  const url = process.env.VERCEL_AI_GATEWAY_TOKEN
-    ? "https://api.vercel.ai/openai/v1/chat/completions"
-    : "https://api.openai.com/v1/chat/completions"
-
+async function scoreCompany(company: { company_name: string; city?: string; category_guess?: string; raw_notes?: string }) {
   const userMsg = `Company: ${company.company_name}
 City: ${company.city || "Arizona"}
 Category: ${company.category_guess || "Unknown"}
-Notes: ${company.raw_notes || "No additional info"}`
+Notes: ${company.raw_notes || "No info"}`
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${gateway_token}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.3,
-        max_tokens: 400,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SCORING_PROMPT },
-          { role: "user", content: userMsg }
-        ]
-      }),
-      signal: AbortSignal.timeout(15000),
-    })
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
-    const content = data.choices?.[0]?.message?.content
-    if (!content) return null
-    return JSON.parse(content)
-  } catch { return null }
+  const result = await aiJSON<{ score: number; tier: string; reasoning: string; pitch: string; next_action: string; estimated_deal_value: number }>(
+    SCORING_SYSTEM, userMsg,
+    { score: 0, tier: "D", reasoning: "Could not score", pitch: "", next_action: "Research needed", estimated_deal_value: 0 }
+  )
+  return result
+}
+
+function heuristicScore(company: { company_name: string; city?: string; category_guess?: string }): number {
+  let score = 40
+  const name = (company.company_name || "").toLowerCase()
+  const cat = (company.category_guess || "").toLowerCase()
+  if (["warehouse","auto","shop","restaurant","hotel","gym","retail"].some(k => name.includes(k) || cat.includes(k))) score += 20
+  if (["phoenix","scottsdale","tempe","mesa","chandler","gilbert","glendale"].includes((company.city || "").toLowerCase())) score += 15
+  if (cat.includes("epoxy") || cat.includes("flooring") || cat.includes("concrete")) score += 10
+  return Math.min(score + Math.floor(Math.random() * 10), 95)
 }
 
 export async function POST(req: Request) {
   const db = getSupabaseAdmin()
   const body = await req.json().catch(() => ({})) as { limit?: number; company_id?: string; dry_run?: boolean }
   const limit = Math.min(body.limit || 10, 50)
+  const provider = aiProviderStatus()
 
   let companies: Array<{ id: string; company_name: string; city?: string; category_guess?: string; raw_notes?: string }> = []
 
@@ -90,54 +72,63 @@ export async function POST(req: Request) {
   }
 
   if (!companies.length) {
-    return NextResponse.json({ scored: 0, message: "No unscored companies found", ai_enabled: !!process.env.VERCEL_AI_GATEWAY_TOKEN })
+    return NextResponse.json({ scored: 0, message: "No unscored companies found", provider })
   }
 
   const results = []
   for (const co of companies) {
-    const ai = await scoreWithAI(co)
-    const score = ai?.score ?? Math.floor(40 + Math.random() * 40)
-    const tier = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D"
+    let score: number, tier: string, reasoning: string, pitch: string, next_action: string
+
+    if (provider.active_provider !== "static") {
+      const ai = await scoreCompany(co)
+      score = Math.max(0, Math.min(100, ai.score || heuristicScore(co)))
+      tier = ai.tier || (score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D")
+      reasoning = ai.reasoning || ""
+      pitch = ai.pitch || ""
+      next_action = ai.next_action || "Follow up"
+    } else {
+      score = heuristicScore(co)
+      tier = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D"
+      reasoning = `Heuristic score: ${score}/100`
+      pitch = `Hi, I am reaching out from XPS about commercial flooring for ${co.company_name}.`
+      next_action = "Send initial WhatsApp message"
+    }
+
     const priority = tier === "A" ? "hot" : tier === "B" ? "warm" : "nurture"
 
     if (!body.dry_run) {
       await db.from("companies" as any).update({
-        lead_score: score,
-        priority_tier: priority,
-        ai_profile_summary: ai?.reasoning || `Score: ${score}/100. Auto-scored by Intelligence Agent.`,
-        ai_pitch_recommendation: ai?.pitch || `Hi, I am reaching out from XPS about your flooring needs.`,
-        ai_next_action: ai?.next_action || "Send initial outreach",
+        lead_score: score, priority_tier: priority,
+        ai_profile_summary: reasoning,
+        ai_pitch_recommendation: pitch,
+        ai_next_action: next_action,
         last_enriched_date: new Date().toISOString(),
       }).eq("id", co.id)
     }
 
-    results.push({ id: co.id, name: co.company_name, score, tier, ai_powered: !!ai })
+    results.push({ id: co.id, name: co.company_name, score, tier, provider: provider.active_provider })
   }
-
-  const avg = Math.round(results.reduce((a, b) => a + b.score, 0) / results.length)
-  const hot = results.filter(r => r.tier === "A").length
 
   return NextResponse.json({
     scored: results.length,
-    avg_score: avg,
-    hot_leads: hot,
-    ai_powered: !!process.env.VERCEL_AI_GATEWAY_TOKEN,
+    avg_score: Math.round(results.reduce((a, b) => a + b.score, 0) / results.length),
+    hot_leads: results.filter(r => r.tier === "A").length,
+    provider,
     results,
   })
 }
 
 export async function GET() {
   const db = getSupabaseAdmin()
-  const { data: stats } = await db.from("companies" as any)
-    .select("lead_score,priority_tier")
-    .not("lead_score", "is", null)
-  const records = (stats as Array<{ lead_score: number; priority_tier: string }>) || []
+  const provider = aiProviderStatus()
+  const { data } = await db.from("companies" as any).select("lead_score,priority_tier").not("lead_score", "is", null)
+  const records = (data as Array<{ lead_score: number; priority_tier: string }>) || []
   return NextResponse.json({
     total_scored: records.length,
-    avg_score: records.length ? Math.round(records.reduce((a, b) => a + (b.lead_score || 0), 0) / records.length) : 0,
+    avg_score: records.length ? Math.round(records.reduce((a, b) => a + b.lead_score, 0) / records.length) : 0,
     hot: records.filter(r => r.priority_tier === "hot").length,
     warm: records.filter(r => r.priority_tier === "warm").length,
     nurture: records.filter(r => r.priority_tier === "nurture").length,
-    ai_enabled: !!process.env.VERCEL_AI_GATEWAY_TOKEN,
+    provider,
   })
 }
