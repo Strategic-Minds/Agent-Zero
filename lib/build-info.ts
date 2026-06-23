@@ -1,2 +1,2 @@
-export const BUILD_TIME = "2026-06-23T09:23:38.350718";
-export const VERSION = "6.6.1-ARIA-DIRECT";
+export const BUILD_TIME = "2026-06-23T09:53:54.211998";
+export const VERSION = "6.7.0-KEYS-INJECTED";
