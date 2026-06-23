@@ -1,58 +1,59 @@
-/**
- * /api/swarm — Parallel Multi-Agent Orchestration Endpoint
- */
-import { NextRequest, NextResponse } from "next/server"
-import { executeSwarm, SWARM_TEMPLATES } from "@/agents/swarm"
+import { NextResponse } from "next/server"
+import { AGENTS } from "@/lib/orchestrator"
 
 export const dynamic = "force-dynamic"
-export const runtime = "nodejs"
-export const maxDuration = 300
+export const maxDuration = 120
 
-export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization")
-  const secret = process.env.BRIDGE_SECRET || ""
-  if (!auth?.includes(secret)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  try {
-    const body = await req.json() as {
-      template?: keyof typeof SWARM_TEMPLATES
-      tasks?: Array<{ id: string; agent: string; instruction: string; priority: number }>
-      strategy?: "parallel" | "sequential" | "priority_queue"
-    }
-
-    let tasks
-    let strategy: "parallel" | "sequential" | "priority_queue" = "parallel"
-
-    if (body.template && SWARM_TEMPLATES[body.template]) {
-      const tmpl = SWARM_TEMPLATES[body.template]
-      tasks = tmpl.tasks
-      strategy = tmpl.strategy
-    } else if (body.tasks) {
-      tasks = body.tasks
-      strategy = body.strategy || "parallel"
-    } else {
-      return NextResponse.json({ error: "Provide template or tasks array" }, { status: 400 })
-    }
-
-    const job = {
-      job_id: `swarm_${Date.now()}`,
-      tasks: tasks as Parameters<typeof executeSwarm>[0]["tasks"],
-      strategy,
-      created_at: new Date().toISOString(),
-    }
-
-    const result = await executeSwarm(job)
-    return NextResponse.json(result)
-  } catch (e) {
-    return NextResponse.json({ error: String(e).slice(0,300) }, { status: 500 })
-  }
+interface SwarmTask {
+  task: string
+  agent_ids?: string[]
+  timeout_ms?: number
 }
 
-export async function GET() {
+export async function POST(req: Request) {
+  const auth = req.headers.get("authorization")
+  if (!auth?.includes(process.env.CRON_SECRET || "")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const body = await req.json().catch(() => ({})) as SwarmTask
+  const { task, agent_ids, timeout_ms = 30000 } = body
+
+  if (!task) return NextResponse.json({ error: "task required" }, { status: 400 })
+
+  const base = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"
+  const target_agents = agent_ids
+    ? AGENTS.filter(a => agent_ids.includes(a.id))
+    : AGENTS.filter(a => a.active).slice(0, 4) // max 4 parallel
+
+  const start = Date.now()
+
+  // Fan-out: all agents in parallel
+  const results = await Promise.allSettled(
+    target_agents.map(async (agent) => {
+      const agent_start = Date.now()
+      try {
+        const r = await fetch(`${base}${agent.endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.CRON_SECRET}` },
+          body: JSON.stringify({ message: task, task, agent_id: agent.id }),
+          signal: AbortSignal.timeout(timeout_ms),
+        })
+        const data = r.ok ? await r.json().catch(() => ({})) : {}
+        return { agent_id: agent.id, agent_name: agent.name, success: r.ok, latency_ms: Date.now() - agent_start, data }
+      } catch (e) {
+        return { agent_id: agent.id, agent_name: agent.name, success: false, latency_ms: Date.now() - agent_start, error: String(e) }
+      }
+    })
+  )
+
+  const resolved = results.map(r => r.status === "fulfilled" ? r.value : { success: false, error: "rejected" })
+  const succeeded = resolved.filter(r => r.success).length
+
   return NextResponse.json({
-    status: "operational",
-    endpoint: "/api/swarm",
-    templates: ["daily_intelligence", "lead_blitz"],
-    usage: { method: "POST", body: { template: "daily_intelligence" } },
+    task, total_agents: target_agents.length, succeeded, failed: target_agents.length - succeeded,
+    total_latency_ms: Date.now() - start,
+    results: resolved,
+    efficiency: `${Math.round((succeeded / target_agents.length) * 100)}%`,
   })
 }
