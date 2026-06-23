@@ -1,83 +1,40 @@
-import { NextResponse } from "next/server"
-import { CHATGPT_FUNCTION_SCHEMA, OPENAI_ASSISTANT_INSTRUCTIONS, SUB_AGENTS } from "@/lib/orchestrator"
+/**
+ * /api/openai-setup - AI Provider Status
+ * Shows which AI provider is currently active
+ */
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic"
+export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const baseUrl = process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "http://localhost:3000"
+export async function GET() {
+  const hasGateway = !!process.env.VERCEL_OIDC_TOKEN;
+  const hasGroq = !!process.env.GROQ_API_KEY;
+  const hasOpenAI = !!process.env.OPENAI_API_KEY;
 
-  // Return everything needed to set up a ChatGPT Custom GPT or OpenAI Assistant
+  const active = hasGateway ? "vercel_gateway"
+    : hasGroq ? "groq"
+    : hasOpenAI ? "openai"
+    : "static";
+
   return NextResponse.json({
-    // Paste this into your ChatGPT GPT instructions
-    chatgpt_instructions: OPENAI_ASSISTANT_INSTRUCTIONS,
-
-    // Add this as an Action in your ChatGPT GPT
-    chatgpt_action: {
-      openapi_schema: {
-        openapi: "3.1.0",
-        info: { title: "Agent Zero Orchestrator", description: "Orchestrate Agent Zero sub-agents in parallel", version: "1.0.0" },
-        servers: [{ url: baseUrl }],
-        paths: {
-          "/api/orchestrate": {
-            post: {
-              operationId: "orchestrateAgents",
-              summary: "Fan out a task to Agent Zero sub-agents in parallel",
-              requestBody: {
-                content: {
-                  "application/json": {
-                    schema: {
-                      type: "object",
-                      required: ["task"],
-                      properties: {
-                        task: { type: "string", description: "The task to delegate" },
-                        agents: { type: "array", items: { type: "string" }, description: "Specific agents (optional)" },
-                      },
-                    },
-                  },
-                },
-              },
-              responses: { "200": { description: "Orchestration result with synthesized response" } },
-            },
-          },
-          "/api/aria": {
-            post: {
-              operationId: "chatWithARIA",
-              summary: "Chat directly with ARIA — Agent Zero\'s primary intelligence agent",
-              requestBody: {
-                content: {
-                  "application/json": {
-                    schema: {
-                      type: "object",
-                      required: ["message"],
-                      properties: {
-                        message: { type: "string" },
-                        channel: { type: "string", default: "web" },
-                        session_id: { type: "string" },
-                      },
-                    },
-                  },
-                },
-              },
-              responses: { "200": { description: "ARIA response" } },
-            },
-          },
-        },
-      },
+    ok: true,
+    active_provider: active,
+    providers: {
+      vercel_gateway: { enabled: hasGateway, note: "Auto-injected VERCEL_OIDC_TOKEN" },
+      groq:           { enabled: hasGroq,    note: "GROQ_API_KEY env var" },
+      openai:         { enabled: hasOpenAI,  note: "OPENAI_API_KEY env var" },
     },
+    waterfall: ["vercel_gateway", "groq", "openai", "static"],
+    message: active === "vercel_gateway"
+      ? "Using Vercel AI Gateway - no OpenAI key needed"
+      : active === "groq"
+      ? "Using Groq (free tier) - fast and free"
+      : active === "openai"
+      ? "Using OpenAI directly"
+      : "No AI provider configured - using static responses",
+  });
+}
 
-    // OpenAI Assistants API setup
-    openai_assistant_setup: {
-      name: "Agent Zero Orchestrator",
-      instructions: OPENAI_ASSISTANT_INSTRUCTIONS,
-      model: "gpt-4o",
-      tools: [
-        { type: "function", function: CHATGPT_FUNCTION_SCHEMA },
-        { type: "code_interpreter" },
-        { type: "file_search" },
-      ],
-    },
-
-    // All 8 sub-agents
-    agents: SUB_AGENTS.map(a => ({ id: a.id, name: a.name, role: a.role, endpoint: baseUrl + a.endpoint })),
-  })
+export async function POST(req: Request) {
+  return GET();
 }
