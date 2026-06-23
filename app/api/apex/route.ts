@@ -1,72 +1,30 @@
 /**
  * APEX API — /api/apex
- * 
- * The master command surface for the APEX agent.
- * Handles all clone/analyze/test/heal/discover commands.
- * Auth: Bearer BRIDGE_SECRET
- * 
- * Commands:
- *   run       — Full autonomous APEX run (discover → clone → test → heal → doc)
- *   analyze   — Analyze one or more sites, return blueprints
- *   discover  — Find top sites in a niche
- *   test      — Test existing code files
- *   heal      — Auto-fix failing tests
- *   status    — Get status of a run by ID
- *   history   — List recent APEX runs
+ * Discovery + clone + analyze + heal commands
  */
-
-import { NextRequest, NextResponse } from 'next/server'
-export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
-export const maxDuration = 300
+import { NextRequest, NextResponse } from "next/server"
 
 function auth(req: NextRequest): boolean {
   return req.headers.get('authorization') === `Bearer ${process.env.BRIDGE_SECRET}`
 }
 
-export async function GET(req: NextRequest) {
-  // GET is public — returns agent info and run status
-
-  const url = new URL(req.url)
-  const runId = url.searchParams.get('run_id')
-
-  if (runId) {
-    // Get specific run status
+export async function GET() {
+  // Always returns JSON — DB optional
+  let runs: unknown[] = []
+  try {
     const { getSupabaseAdmin } = await import('@/lib/supabase')
     const db = getSupabaseAdmin()
-    const { data } = await db
-      .from('apex_runs' as any)
-      .select('run_id, status, mode, sites_analyzed, files_generated, healed_issues, started_at, completed_at, niche')
-      .eq('run_id', runId)
-      .single()
-    return NextResponse.json({ run: data })
-  }
-
-  // List recent runs
-  const { getSupabaseAdmin } = await import('@/lib/supabase')
-  const db = getSupabaseAdmin()
-  const { data } = await db
-    .from('apex_runs' as any)
-    .select('run_id, status, mode, sites_analyzed, files_generated, healed_issues, started_at, completed_at, niche')
-    .order('started_at', { ascending: false })
-    .limit(10)
+    const res = await db.from('apex_runs' as any).select('*').order('started_at', { ascending: false }).limit(10)
+    runs = res.data || []
+  } catch { /* DB not yet provisioned */ }
 
   return NextResponse.json({
+    ok: true,
     agent: 'APEX',
     version: '2.0.0',
-    status: 'operational',
-    capabilities: [
-      'discover_top_sites — find top 3-5 sites in any niche globally',
-      'deep_crawl — parallel multi-page inhalation up to 20 pages',
-      'blueprint_generation — full tech+business+UX analysis',
-      'code_generation — Next.js 14 + TS + Tailwind clone generation',
-      'autonomous_testing — frontend + backend + security + SEO tests',
-      'auto_heal — self-fix all failing tests without human input',
-      'intelligence_docs — enterprise Markdown reports to Supabase',
-      'github_push — auto-commit all generated files',
-      'niche_hunt — find profitable niches anywhere in the world',
-    ],
-    recentRuns: data || [],
+    status: 'active',
+    runs,
+    capabilities: ['clone', 'analyze', 'discover', 'audit', 'heal'],
   })
 }
 
