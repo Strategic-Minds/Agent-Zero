@@ -25,7 +25,7 @@ function auth(req: NextRequest): boolean {
 }
 
 export async function GET(req: NextRequest) {
-  if (!auth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // GET is public — returns agent info and run status
 
   const url = new URL(req.url)
   const runId = url.searchParams.get('run_id')
