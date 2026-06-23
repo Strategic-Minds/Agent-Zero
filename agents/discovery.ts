@@ -1,6 +1,4 @@
-import fetch from 'node-fetch';
 import { NextApiRequest, NextApiResponse } from 'next';
-import { GoogleMapsPlacesApiUrl, AzCorpCommissionApiUrl, GoogleMapsPlacesApiKey, AzCorpCommissionApiKey } from '@/config';
 
 export async function getGoogleMapsPlaces(terms: string, location: string, radius: number): Promise<any> {
   try {
