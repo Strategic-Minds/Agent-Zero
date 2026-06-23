@@ -1,7 +1,6 @@
 /**
- * AI CLIENT — Groq primary (active) + Vercel AI Gateway (vck_ key — server-side pending OIDC)
- * Priority: GROQ_API_KEY → OPENAI_API_KEY → Vercel Gateway → static
- * Groq model: llama-3.3-70b-versatile (llama-3.1-70b decommissioned June 2026)
+ * AI CLIENT — Groq primary + fallback chain
+ * Groq model: llama-3.3-70b-versatile (always — ignores requested model for Groq)
  */
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -35,8 +34,7 @@ function getOpenAIProvider() {
 function getGatewayProvider() {
   const key = process.env.AI_GATEWAY_API_KEY;
   if (!key || key.length < 10) return null;
-  const baseURL = process.env.AI_GATEWAY_BASE_URL || "https://gateway.ai.vercel.app/v1";
-  return createOpenAI({ baseURL, apiKey: key });
+  return createOpenAI({ baseURL: "https://gateway.ai.vercel.app/v1", apiKey: key });
 }
 
 export async function ai(
@@ -44,9 +42,9 @@ export async function ai(
   options: { model?: string; maxTokens?: number } = {}
 ): Promise<AIResponse> {
   const maxTokens = options.maxTokens ?? 500;
-  const model = options.model ?? "gpt-4o-mini";
+  const oaiModel = options.model ?? "gpt-4o-mini";
 
-  // 1. Groq — fastest, confirmed working
+  // 1. Groq — always uses GROQ_MODEL regardless of requested model
   const groq = getGroqProvider();
   if (groq) {
     try {
@@ -59,17 +57,17 @@ export async function ai(
   const oai = getOpenAIProvider();
   if (oai) {
     try {
-      const { text } = await generateText({ model: oai(model), messages, maxTokens });
-      if (text?.length > 0) return { content: text, model, provider: "openai" };
+      const { text } = await generateText({ model: oai(oaiModel), messages, maxTokens });
+      if (text?.length > 0) return { content: text, model: oaiModel, provider: "openai" };
     } catch { /* fall through */ }
   }
 
-  // 3. Vercel AI Gateway (vck_ key — works in Vercel runtime via OIDC context)
+  // 3. Vercel AI Gateway
   const gateway = getGatewayProvider();
   if (gateway) {
     try {
-      const { text } = await generateText({ model: gateway(model), messages, maxTokens });
-      if (text?.length > 0) return { content: text, model, provider: "vercel_gateway" };
+      const { text } = await generateText({ model: gateway(oaiModel), messages, maxTokens });
+      if (text?.length > 0) return { content: text, model: oaiModel, provider: "vercel_gateway" };
     } catch { /* fall through */ }
   }
 
