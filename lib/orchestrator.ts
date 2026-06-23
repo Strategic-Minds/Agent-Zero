@@ -220,11 +220,30 @@ export const CHATGPT_FUNCTION_SCHEMA = {
   },
 }
 
-// Legacy: single-agent orchestrate wrapper
+// Legacy: orchestrate wrapper — supports both old (string) and new (options object) calling conventions
 export async function orchestrate(
   message: string,
-  preferredAgent = "aria",
+  preferredAgentOrOptions: string | { agents?: string[]; baseUrl?: string; sessionId?: string } = "aria",
   context: Record<string, unknown> = {}
-) {
-  return orchestrateParallel(message, [preferredAgent], context)
+): Promise<{ run_id: string; status: string; synthesized_response: string; results: Array<{ agent_name: string; success: boolean; latency_ms: number; response?: unknown; error?: string }>; parallel_groups: number }> {
+  let agents = ["aria"]
+  if (typeof preferredAgentOrOptions === "string") {
+    agents = [preferredAgentOrOptions]
+  } else if (preferredAgentOrOptions?.agents?.length) {
+    agents = preferredAgentOrOptions.agents
+  }
+  const result = await orchestrateParallel(message, agents, context)
+  return {
+    run_id: `orch_${Date.now()}`,
+    status: result.agents_succeeded > 0 ? "success" : "failed",
+    synthesized_response: result.agents_succeeded > 0 ? `${result.agents_succeeded}/${agents.length} agents responded in ${result.duration_ms}ms` : "All agents failed",
+    results: result.results.map(r => ({
+      agent_name: r.agent,
+      success: r.status === "fulfilled",
+      latency_ms: r.duration_ms,
+      response: r.value,
+      error: r.error,
+    })),
+    parallel_groups: 1,
+  }
 }
