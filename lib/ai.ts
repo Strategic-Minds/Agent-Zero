@@ -1,7 +1,6 @@
 /**
  * AI CLIENT — Vercel AI Gateway primary
- * Key: vck_* (Vercel Connect Key) uses Vercel AI Gateway
- * Priority: AI_GATEWAY_API_KEY → GROQ_API_KEY → OPENAI_API_KEY → static
+ * Priority: AI_GATEWAY_API_KEY (vck_*) → GROQ_API_KEY → OPENAI_API_KEY → static
  */
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -21,17 +20,8 @@ export interface AIResponse {
 function getGatewayProvider() {
   const key = process.env.AI_GATEWAY_API_KEY;
   if (!key || key.length < 10) return null;
-  
-  // vck_ keys work with Vercel AI Gateway via openai-compatible endpoint
-  // The base URL for Vercel AI Gateway
   const baseURL = process.env.AI_GATEWAY_BASE_URL || "https://api.vercel.com/v1/ai/gateway";
-  return createOpenAI({
-    baseURL,
-    apiKey: key,
-    defaultHeaders: {
-      "Authorization": `Bearer ${key}`,
-    },
-  });
+  return createOpenAI({ baseURL, apiKey: key });
 }
 
 function getGroqProvider() {
@@ -53,40 +43,27 @@ export async function ai(
   const maxTokens = options.maxTokens ?? 500;
   const model = options.model ?? "gpt-4o-mini";
 
-  // 1. Vercel AI Gateway (vck_ key)
   const gateway = getGatewayProvider();
   if (gateway) {
     try {
       const { text } = await generateText({ model: gateway(model), messages, maxTokens });
-      if (text && text.length > 0) {
-        return { content: text, model, provider: "vercel_gateway" };
-      }
+      if (text?.length > 0) return { content: text, model, provider: "vercel_gateway" };
     } catch { /* fall through */ }
   }
 
-  // 2. Groq (fast, free)
   const groq = getGroqProvider();
   if (groq) {
     try {
-      const { text } = await generateText({
-        model: groq("llama-3.1-70b-versatile"),
-        messages,
-        maxTokens,
-      });
-      if (text && text.length > 0) {
-        return { content: text, model: "llama-3.1-70b-versatile", provider: "groq" };
-      }
+      const { text } = await generateText({ model: groq("llama-3.1-70b-versatile"), messages, maxTokens });
+      if (text?.length > 0) return { content: text, model: "llama-3.1-70b-versatile", provider: "groq" };
     } catch { /* fall through */ }
   }
 
-  // 3. OpenAI direct
   const oai = getOpenAIProvider();
   if (oai) {
     try {
       const { text } = await generateText({ model: oai(model), messages, maxTokens });
-      if (text && text.length > 0) {
-        return { content: text, model, provider: "openai" };
-      }
+      if (text?.length > 0) return { content: text, model, provider: "openai" };
     } catch { /* fall through */ }
   }
 
