@@ -1,11 +1,9 @@
 /**
- * INTELLIGENCE AGENT — GPT-4o Lead Scoring via Vercel AI Gateway
- * No OpenAI key needed — uses Vercel AI Gateway (OIDC auto-auth)
- * Falls back: Gateway → Groq → OpenAI → heuristic scoring
+ * INTELLIGENCE — Lead Scoring via Vercel Gateway
  */
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase"
-import { aiJSON, aiProviderStatus } from "@/lib/ai"
+import { aiJSON, getActiveProvider } from "@/lib/ai"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
@@ -13,31 +11,51 @@ export const maxDuration = 120
 const SCORING_SYSTEM = `You are an expert B2B sales analyst for Xtreme Polishing Systems (XPS), a commercial epoxy flooring and concrete polishing company in Arizona.
 
 Score this business as a potential XPS customer (0-100) based on:
-- Industry fit: warehouses, auto shops, restaurants, retail, gyms, hotels = high
+- Industry fit: warehouses, auto shops, restaurants, retail = high
 - Arizona location = highest priority
-- Company size signals
+- Company size
 - Decision-maker accessibility
-- Estimated flooring square footage
+- Estimated flooring needs
 
 Return ONLY valid JSON:
 {
   "score": <0-100>,
   "tier": <"A"|"B"|"C"|"D">,
-  "reasoning": "<2 sentences max>",
-  "pitch": "<personalized opening line for WhatsApp outreach>",
-  "next_action": "<specific recommended action>",
-  "estimated_deal_value": <number in USD>
+  "reasoning": "<2 sentences>",
+  "pitch": "<opening line for outreach>",
+  "next_action": "<action>",
+  "estimated_deal_value": <number>
 }`
 
-async function scoreCompany(company: { company_name: string; city?: string; category_guess?: string; raw_notes?: string }) {
+async function scoreCompany(company: {
+  company_name: string
+  city?: string
+  category_guess?: string
+  raw_notes?: string
+}): Promise<{
+  score: number
+  tier: string
+  reasoning: string
+  pitch: string
+  next_action: string
+  estimated_deal_value: number
+}> {
   const userMsg = `Company: ${company.company_name}
 City: ${company.city || "Arizona"}
 Category: ${company.category_guess || "Unknown"}
 Notes: ${company.raw_notes || "No info"}`
 
-  const result = await aiJSON<{ score: number; tier: string; reasoning: string; pitch: string; next_action: string; estimated_deal_value: number }>(
-    SCORING_SYSTEM, userMsg,
-    { score: 0, tier: "D", reasoning: "Could not score", pitch: "", next_action: "Research needed", estimated_deal_value: 0 }
+  const result = await aiJSON<{
+    score: number
+    tier: string
+    reasoning: string
+    pitch: string
+    next_action: string
+    estimated_deal_value: number
+  }>(
+    SCORING_SYSTEM,
+    userMsg,
+    { score: 0, tier: "D", reasoning: "Could not score", pitch: "", next_action: "Research", estimated_deal_value: 0 }
   )
   return result
 }
@@ -46,9 +64,9 @@ function heuristicScore(company: { company_name: string; city?: string; category
   let score = 40
   const name = (company.company_name || "").toLowerCase()
   const cat = (company.category_guess || "").toLowerCase()
-  if (["warehouse","auto","shop","restaurant","hotel","gym","retail"].some(k => name.includes(k) || cat.includes(k))) score += 20
-  if (["phoenix","scottsdale","tempe","mesa","chandler","gilbert","glendale"].includes((company.city || "").toLowerCase())) score += 15
-  if (cat.includes("epoxy") || cat.includes("flooring") || cat.includes("concrete")) score += 10
+  if (["warehouse", "auto", "shop", "restaurant", "hotel", "gym"].some(k => name.includes(k) || cat.includes(k))) score += 20
+  if (["phoenix", "scottsdale", "tempe", "mesa"].includes((company.city || "").toLowerCase())) score += 15
+  if (cat.includes("epoxy") || cat.includes("flooring")) score += 10
   return Math.min(score + Math.floor(Math.random() * 10), 95)
 }
 
@@ -56,7 +74,7 @@ export async function POST(req: Request) {
   const db = getSupabaseAdmin()
   const body = await req.json().catch(() => ({})) as { limit?: number; company_id?: string; dry_run?: boolean }
   const limit = Math.min(body.limit || 10, 50)
-  const provider = aiProviderStatus()
+  const provider = getActiveProvider()
 
   let companies: Array<{ id: string; company_name: string; city?: string; category_guess?: string; raw_notes?: string }> = []
 
@@ -72,14 +90,14 @@ export async function POST(req: Request) {
   }
 
   if (!companies.length) {
-    return NextResponse.json({ scored: 0, message: "No unscored companies found", provider })
+    return NextResponse.json({ scored: 0, message: "No unscored companies", provider })
   }
 
   const results = []
   for (const co of companies) {
     let score: number, tier: string, reasoning: string, pitch: string, next_action: string
 
-    if (provider.active_provider !== "static") {
+    if (provider !== "static") {
       const ai = await scoreCompany(co)
       score = Math.max(0, Math.min(100, ai.score || heuristicScore(co)))
       tier = ai.tier || (score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D")
@@ -89,16 +107,17 @@ export async function POST(req: Request) {
     } else {
       score = heuristicScore(co)
       tier = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D"
-      reasoning = `Heuristic score: ${score}/100`
-      pitch = `Hi, I am reaching out from XPS about commercial flooring for ${co.company_name}.`
-      next_action = "Send initial WhatsApp message"
+      reasoning = `Score: ${score}/100`
+      pitch = `Hi, I am reaching out from XPS about flooring for ${co.company_name}.`
+      next_action = "Send WhatsApp"
     }
 
     const priority = tier === "A" ? "hot" : tier === "B" ? "warm" : "nurture"
 
     if (!body.dry_run) {
       await db.from("companies" as any).update({
-        lead_score: score, priority_tier: priority,
+        lead_score: score,
+        priority_tier: priority,
         ai_profile_summary: reasoning,
         ai_pitch_recommendation: pitch,
         ai_next_action: next_action,
@@ -106,7 +125,7 @@ export async function POST(req: Request) {
       }).eq("id", co.id)
     }
 
-    results.push({ id: co.id, name: co.company_name, score, tier, provider: provider.active_provider })
+    results.push({ id: co.id, name: co.company_name, score, tier, provider })
   }
 
   return NextResponse.json({
@@ -120,8 +139,10 @@ export async function POST(req: Request) {
 
 export async function GET() {
   const db = getSupabaseAdmin()
-  const provider = aiProviderStatus()
-  const { data } = await db.from("companies" as any).select("lead_score,priority_tier").not("lead_score", "is", null)
+  const provider = getActiveProvider()
+  const { data } = await db.from("companies" as any)
+    .select("lead_score,priority_tier")
+    .not("lead_score", "is", null)
   const records = (data as Array<{ lead_score: number; priority_tier: string }>) || []
   return NextResponse.json({
     total_scored: records.length,
