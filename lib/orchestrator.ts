@@ -139,7 +139,7 @@ async function routeToAgent(agentId: string, message: string, context: Record<st
 
   if (agentId === "aria") {
     const { chat } = await import("@/agents/aria")
-    result = await chat(message, context as { conversation_id?: string; history?: unknown[] })
+    result = await chat(message, [], String(context?.conversation_id || 'default'))
   } else if (agentId === "discovery") {
     const { runXPSDiscovery } = await import("@/agents/discovery")
     result = await runXPSDiscovery()
