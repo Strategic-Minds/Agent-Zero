@@ -23,6 +23,6 @@ export async function GET(req: NextRequest) {
     if (i < 2) await new Promise(r => setTimeout(r, 5000))
   }
   const avgScore = Math.round(results.reduce((s, r) => s + (r.score || 0), 0) / 3)
-  const allCleared = results.every(r => r.deployment_approved)
+  const allCleared = results.every(r => r.cleared)
   return NextResponse.json({ triple_check: true, runs: results, avg_score: avgScore, all_cleared: allCleared, timestamp: new Date().toISOString() })
 }
