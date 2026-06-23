@@ -1,6 +1,5 @@
 /**
- * WHATSAPP AUTONOMOUS COMMUNICATION SYSTEM
- * Uses Vercel AI Gateway via lib/ai — no OpenAI key needed
+ * WHATSAPP INBOUND — Autonomous auto-reply
  */
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase"
@@ -17,7 +16,10 @@ async function sendTwilioReply(to: string, body: string): Promise<boolean> {
   const form = new URLSearchParams({ From: from, To: to, Body: body })
   const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: "POST",
-    headers: { "Authorization": `Basic ${Buffer.from(`${sid}:${auth}`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Authorization": `Basic ${Buffer.from(`${sid}:${auth}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
     body: form.toString(),
   }).catch(() => null)
   return r?.ok || false
@@ -30,11 +32,12 @@ export async function POST(req: Request) {
 
   const from = params.From || ""
   const body = params.Body || ""
-  const profileName = params.ProfileName || "Unknown"
+  const profileName = params.ProfileName || "Contact"
   const phone = from.replace("whatsapp:", "")
 
   if (!body || !from) return new Response("OK", { status: 200 })
 
+  // Find company by phone
   const { data: companies } = await db.from("companies" as any)
     .select("id,company_name,ai_profile_summary,lead_score")
     .ilike("phone", `%${phone.replace("+1", "").replace(/\D/g, "").slice(-10)}%`)
@@ -42,7 +45,7 @@ export async function POST(req: Request) {
 
   const company = companies?.[0] as { id: string; company_name: string; ai_profile_summary?: string; lead_score?: number } | undefined
   const company_name = company?.company_name || profileName
-  const context = company ? `Score: ${company.lead_score}/100. ${company.ai_profile_summary || ""}` : "New inbound — not in CRM"
+  const context = company ? `Score: ${company.lead_score}/100. ${company.ai_profile_summary || ""}` : "New lead"
 
   const reply = await ariaWhatsAppReply(body, company_name, context)
   const sent = await sendTwilioReply(from, reply)
@@ -54,13 +57,14 @@ export async function POST(req: Request) {
       contact_phone: phone,
       call_date: new Date().toISOString(),
       call_outcome: "whatsapp_inbound",
-      call_notes: `Inbound: "${body.slice(0, 200)}" | Reply: "${reply.slice(0, 200)}"`,
-      ai_call_summary: `WhatsApp reply sent: ${sent ? "YES" : "NO"}`,
+      call_notes: `In: "${body.slice(0, 100)}" | Out: "${reply.slice(0, 100)}"`,
+      ai_call_summary: sent ? "Sent" : "Failed",
     })
   } catch { /* non-fatal */ }
 
   return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`, {
-    status: 200, headers: { "Content-Type": "text/xml" }
+    status: 200,
+    headers: { "Content-Type": "text/xml" }
   })
 }
 
@@ -68,6 +72,5 @@ export async function GET() {
   return NextResponse.json({
     status: "WhatsApp Autonomous System — ACTIVE",
     twilio_configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
-    ai_provider: process.env.VERCEL_OIDC_TOKEN ? "vercel_gateway" : process.env.GROQ_API_KEY ? "groq" : "static",
   })
 }
