@@ -1,5 +1,6 @@
 /**
- * INTELLIGENCE AGENT — GPT-4o Lead Scoring + Profile Generation
+ * INTELLIGENCE AGENT — Vercel AI Gateway Lead Scoring
+ * Uses Vercel AI Gateway (no direct OpenAI key needed)
  * Upgrades AI Intelligence dimension from 45 → 90+
  */
 import { NextResponse } from "next/server"
@@ -32,11 +33,12 @@ async function scoreWithAI(company: {
 }): Promise<{
   score: number; tier: string; reasoning: string; pitch: string; next_action: string; estimated_deal_value: number
 } | null> {
-  const key = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY
-  if (!key) return null
-  const is_groq = !process.env.OPENAI_API_KEY
-  const url = is_groq ? "https://api.groq.com/openai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions"
-  const model = is_groq ? "llama-3.1-70b-versatile" : "gpt-4o"
+  const gateway_token = process.env.VERCEL_AI_GATEWAY_TOKEN || process.env.OPENAI_API_KEY
+  if (!gateway_token) return null
+
+  const url = process.env.VERCEL_AI_GATEWAY_TOKEN
+    ? "https://api.vercel.ai/openai/v1/chat/completions"
+    : "https://api.openai.com/v1/chat/completions"
 
   const userMsg = `Company: ${company.company_name}
 City: ${company.city || "Arizona"}
@@ -46,9 +48,14 @@ Notes: ${company.raw_notes || "No additional info"}`
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${gateway_token}`,
+      },
       body: JSON.stringify({
-        model, temperature: 0.3, max_tokens: 400,
+        model: "gpt-4o-mini",
+        temperature: 0.3,
+        max_tokens: 400,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SCORING_PROMPT },
@@ -83,7 +90,7 @@ export async function POST(req: Request) {
   }
 
   if (!companies.length) {
-    return NextResponse.json({ scored: 0, message: "No unscored companies found", ai_enabled: !!(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) })
+    return NextResponse.json({ scored: 0, message: "No unscored companies found", ai_enabled: !!process.env.VERCEL_AI_GATEWAY_TOKEN })
   }
 
   const results = []
@@ -111,8 +118,10 @@ export async function POST(req: Request) {
   const hot = results.filter(r => r.tier === "A").length
 
   return NextResponse.json({
-    scored: results.length, avg_score: avg, hot_leads: hot,
-    ai_powered: !!(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY),
+    scored: results.length,
+    avg_score: avg,
+    hot_leads: hot,
+    ai_powered: !!process.env.VERCEL_AI_GATEWAY_TOKEN,
     results,
   })
 }
@@ -129,6 +138,6 @@ export async function GET() {
     hot: records.filter(r => r.priority_tier === "hot").length,
     warm: records.filter(r => r.priority_tier === "warm").length,
     nurture: records.filter(r => r.priority_tier === "nurture").length,
-    ai_enabled: !!(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY),
+    ai_enabled: !!process.env.VERCEL_AI_GATEWAY_TOKEN,
   })
 }
