@@ -1,2 +1,2 @@
-export const BUILD_TIME = "2026-06-23T08:28:06.566778";
-export const VERSION = "6.4.0";
+export const BUILD_TIME = "2026-06-23T08:33:56.864447";
+export const VERSION = "6.5.0";
