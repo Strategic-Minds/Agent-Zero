@@ -1,142 +1,213 @@
-"use client"
-import { useEffect, useState, useCallback } from "react"
+"use client";
+import { useState, useEffect } from "react";
 
-interface SysStatus { status: string; agents: string[]; database: { companies: number; memory_entries: number; agent_actions: number }; env: Record<string, boolean> }
-interface Lead { id: string; company_name: string; phone: string; city: string; state: string; lead_score: number; priority_tier: string; status: string }
+const ACTIONS = [
+  { id: "lead_discovery",  label: "Lead Discovery",        desc: "Scrape new AZ epoxy leads" },
+  { id: "lead_scoring",    label: "Lead Scoring",           desc: "AI score all unscored leads" },
+  { id: "whatsapp_brief",  label: "WhatsApp Daily Brief",   desc: "Send top 5 leads via WhatsApp" },
+  { id: "outreach",        label: "Email Outreach",         desc: "Send pitch emails to A-tier leads" },
+  { id: "daily_report",    label: "Daily Report",           desc: "Full pipeline summary" },
+  { id: "slack_alerts",    label: "Slack Alerts",           desc: "Post new leads to #xps-leads" },
+];
+
+type ActionMap = Record<string, boolean>;
+
+interface SystemState {
+  master: boolean;
+  actions: ActionMap;
+  last_updated: string;
+}
+
+interface HealthData {
+  status: string;
+  version?: string;
+  uptime_seconds?: number;
+  checks?: Record<string, boolean>;
+}
 
 export default function Dashboard() {
-  const [sys, setSys] = useState<SysStatus | null>(null)
-  const [leads, setLeads] = useState<Lead[]>([])
-  const [tab, setTab] = useState<"leads"|"agents"|"config">("leads")
-  const [msg, setMsg] = useState(""); const [resp, setResp] = useState(""); const [loading, setLoading] = useState(false)
+  const [state,    setState]    = useState<SystemState>({ master: false, actions: {}, last_updated: "" });
+  const [health,   setHealth]   = useState<HealthData>({ status: "loading" });
+  const [loading,  setLoading]  = useState(true);
+  const [lastRun,  setLastRun]  = useState<string>("");
+  const [runResult, setRunResult] = useState<string>("");
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const r = await fetch("/api/aria", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({message:"Use system_status tool",channel:"web"}) })
-      const d = await r.json()
-      const statusMatch = d.response?.match(/operational|healthy/i)
-      if (statusMatch) setSys({ status: "healthy", agents: ["ARIA v2","APEX v2","GHOST","DISCOVERY","OUTREACH","INTELLIGENCE"], database: { companies: 0, memory_entries: 0, agent_actions: 0 }, env: {} })
-    } catch {}
-    try {
-      const r2 = await fetch("/api/health"); const d2 = await r2.json()
-      setSys(s => s ? {...s, status: d2.status, env: d2.checks || {}} : { status: d2.status, agents: ["ARIA v2","APEX v2","GHOST","DISCOVERY","OUTREACH","INTELLIGENCE"], database: { companies: 0, memory_entries: 0, agent_actions: 0 }, env: d2.checks || {} })
-    } catch {}
-  }, [])
+  useEffect(() => {
+    loadState();
+    loadHealth();
+    const t = setInterval(() => { loadHealth(); }, 30000);
+    return () => clearInterval(t);
+  }, []);
 
-  useEffect(() => { fetchStatus() }, [fetchStatus])
-
-  const ask = async () => {
-    if (!msg.trim() || loading) return
-    setLoading(true); setResp("")
+  async function loadState() {
     try {
-      const r = await fetch("/api/aria", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({message: msg, channel:"web"}) })
-      const d = await r.json(); setResp(d.response || d.error || "No response"); setMsg("")
-    } catch { setResp("Error") } finally { setLoading(false) }
+      const r = await fetch("/api/system-control");
+      const d = await r.json() as { system_state: SystemState };
+      setState(d.system_state);
+    } catch { /* ignore */ }
+    setLoading(false);
   }
 
-  const tc = (t: string) => ({S:"#e53e3e",A:"#dd6b20",B:"#d69e2e",C:"#38a169",D:"#718096"}[t]||"#718096")
-  const online = sys?.status === "healthy"
+  async function loadHealth() {
+    try {
+      const r = await fetch("/api/health");
+      const d = await r.json() as HealthData;
+      setHealth(d);
+    } catch { setHealth({ status: "error" }); }
+  }
+
+  async function toggleMaster(on: boolean) {
+    setLoading(true);
+    await fetch("/api/system-control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ master: on }),
+    });
+    await loadState();
+  }
+
+  async function toggleAction(id: string, enabled: boolean) {
+    await fetch("/api/system-control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: id, enabled }),
+    });
+    setState(prev => ({ ...prev, actions: { ...prev.actions, [id]: enabled } }));
+  }
+
+  async function triggerNow(id: string) {
+    setLastRun(id);
+    setRunResult("Running...");
+    const r = await fetch("/api/system-control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trigger_now: id }),
+    });
+    const d = await r.json() as { message?: string };
+    setRunResult(d.message || "Done");
+    setTimeout(() => setRunResult(""), 4000);
+  }
+
+  const statusColor = health.status === "ok" ? "#16a34a" : health.status === "loading" ? "#d97706" : "#dc2626";
 
   return (
-    <div style={{fontFamily:"Inter,sans-serif",background:"#0a0a0a",minHeight:"100vh",color:"#e0e0e0",display:"flex",flexDirection:"column"}}>
-      <div style={{background:"#111",borderBottom:"1px solid #222",padding:"14px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:34,height:34,background:"linear-gradient(135deg,#ff6b35,#f7931e)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>⚡</div>
-          <div><div style={{fontSize:17,fontWeight:700,color:"#fff"}}>Agent Zero</div><div style={{fontSize:11,color:"#666"}}>XPS Intelligence Command Center</div></div>
+    <div style={{ background: "#ffffff", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", color: "#111827" }}>
+      {/* TOP BAR */}
+      <div style={{ background: "#1e293b", padding: "14px 32px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 36, height: 36, background: "#3b82f6", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16 }}>X</div>
+          <div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 16 }}>XPS Agent Zero</div>
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Operational Dashboard</div>
+          </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:online?"#48bb78":"#fc8181"}}/>
-          <span style={{fontSize:12,color:"#888"}}>{online?"All Systems Online":"Checking..."}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor }} />
+          <span style={{ color: "#94a3b8", fontSize: 13 }}>{health.version || "v7.6.1"} &mdash; {health.status}</span>
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,background:"#1a1a1a"}}>
-        {[{l:"Leads",v:sys?.database?.companies??0,i:"🏢"},{l:"Memory",v:sys?.database?.memory_entries??0,i:"🧠"},{l:"Actions",v:sys?.database?.agent_actions??0,i:"📋"},{l:"Agents",v:6,i:"🤖"}].map(s=>(
-          <div key={s.l} style={{background:"#111",padding:"16px 20px",textAlign:"center"}}>
-            <div style={{fontSize:22}}>{s.i}</div>
-            <div style={{fontSize:26,fontWeight:700,color:"#fff",marginTop:4}}>{s.v}</div>
-            <div style={{fontSize:11,color:"#555"}}>{s.l}</div>
-          </div>
-        ))}
-      </div>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 24px" }}>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 380px",flex:1,overflow:"hidden"}}>
-        <div style={{overflow:"auto",padding:20}}>
-          <div style={{display:"flex",gap:4,marginBottom:20,background:"#111",borderRadius:8,padding:4,width:"fit-content"}}>
-            {(["leads","agents","config"] as const).map(t=>(
-              <button key={t} onClick={()=>setTab(t)} style={{padding:"7px 18px",borderRadius:6,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,textTransform:"capitalize",background:tab===t?"#ff6b35":"transparent",color:tab===t?"#fff":"#777"}}>
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {tab==="agents" && (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
-              {["ARIA v2.0 — 20 tools, memory, streaming","APEX v2.0 — site clone + code gen","GHOST — competitive intel","DISCOVERY — lead generation","OUTREACH — automated sequences","INTELLIGENCE — scoring + enrichment"].map(a=>(
-                <div key={a} style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:10,padding:16}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <div style={{fontWeight:700,fontSize:14}}>{a.split("—")[0].trim()}</div>
-                    <div style={{background:"#0d2e0d",color:"#48bb78",padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600}}>ONLINE</div>
-                  </div>
-                  <div style={{fontSize:12,color:"#555"}}>{a.split("—")[1]?.trim()}</div>
-                </div>
-              ))}
+        {/* MASTER SWITCH */}
+        <div style={{ background: state.master ? "#f0fdf4" : "#fff7ed", border: "1.5px solid " + (state.master ? "#86efac" : "#fdba74"), borderRadius: 12, padding: "24px 28px", marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "#111827" }}>System Master Switch</div>
+            <div style={{ color: "#6b7280", fontSize: 14, marginTop: 4 }}>
+              {state.master ? "SYSTEM ACTIVE — automated actions are running on schedule" : "SYSTEM OFF — all automated actions are paused"}
             </div>
-          )}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={() => toggleMaster(false)}
+              style={{ padding: "10px 24px", borderRadius: 8, border: "1.5px solid #f87171", background: state.master ? "#fff" : "#fef2f2", color: "#dc2626", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+              OFF
+            </button>
+            <button
+              onClick={() => toggleMaster(true)}
+              style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: state.master ? "#16a34a" : "#d1d5db", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+              ON
+            </button>
+          </div>
+        </div>
 
-          {tab==="leads" && (
-            <div>
-              {leads.length === 0 ? (
-                <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:12,padding:48,textAlign:"center"}}>
-                  <div style={{fontSize:44,marginBottom:12}}>🏢</div>
-                  <div style={{fontSize:16,fontWeight:600,marginBottom:8,color:"#fff"}}>No leads in pipeline</div>
-                  <div style={{color:"#555",marginBottom:20,fontSize:13}}>Ask ARIA to discover leads or import from CSV</div>
-                  <button onClick={()=>{setMsg("Use db_query tool to get all companies from the companies table, ordered by lead_score");setTab("leads")}} style={{padding:"10px 20px",background:"#ff6b35",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600}}>
-                    Load Leads →
+        {/* HEALTH CARDS */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
+          {[
+            { label: "System Status", value: health.status === "ok" ? "Online" : health.status, color: statusColor },
+            { label: "AI Provider",   value: (health.checks?.groq ? "Groq" : "Offline"), color: health.checks?.groq ? "#16a34a" : "#dc2626" },
+            { label: "Database",      value: (health.checks?.supabase ? "Connected" : "Offline"), color: health.checks?.supabase ? "#16a34a" : "#dc2626" },
+            { label: "Last Updated",  value: state.last_updated ? new Date(state.last_updated).toLocaleTimeString() : "—", color: "#6b7280" },
+          ].map(c => (
+            <div key={c.label} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "18px 20px" }}>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{c.label}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: c.color }}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ACTION CONTROLS */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Automated Actions</div>
+          <div style={{ color: "#6b7280", fontSize: 13 }}>Toggle individual actions or trigger manually. Master switch must be ON for scheduled runs.</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 28 }}>
+          {ACTIONS.map(a => {
+            const enabled = state.actions?.[a.id] ?? false;
+            const isRunning = lastRun === a.id && runResult === "Running...";
+            return (
+              <div key={a.id} style={{ background: "#fff", border: "1.5px solid " + (enabled ? "#bfdbfe" : "#e2e8f0"), borderRadius: 10, padding: "18px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>{a.label}</div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>{a.desc}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    onClick={() => triggerNow(a.id)}
+                    style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #d1d5db", background: "#f8fafc", color: "#374151", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+                    {isRunning ? "..." : "Run Now"}
+                  </button>
+                  <button
+                    onClick={() => toggleAction(a.id, !enabled)}
+                    style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: enabled ? "#3b82f6" : "#d1d5db", cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                    <span style={{ position: "absolute", top: 2, left: enabled ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
                   </button>
                 </div>
-              ) : leads.map(l=>(
-                <div key={l.id} style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:8,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div><div style={{fontWeight:600}}>{l.company_name}</div><div style={{fontSize:12,color:"#555"}}>{l.city}, {l.state} · {l.phone}</div></div>
-                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                    <div style={{background:tc(l.priority_tier),color:"#fff",padding:"2px 10px",borderRadius:4,fontSize:12,fontWeight:700}}>T{l.priority_tier}</div>
-                    <div style={{fontWeight:600}}>{l.lead_score}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+              </div>
+            );
+          })}
+        </div>
 
-          {tab==="config" && (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
-              {Object.entries(sys?.env||{}).map(([k,v])=>(
-                <div key={k} style={{background:"#111",border:`1px solid ${v?"#1a2e1a":"#2e1a1a"}`,borderRadius:8,padding:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:12,textTransform:"uppercase",letterSpacing:1,color:"#888"}}>{k.replace(/_/g," ")}</span>
-                  <span style={{color:v?"#48bb78":"#fc8181",fontWeight:700,fontSize:13}}>{v?"✅":"❌"}</span>
-                </div>
+        {/* MANUAL ACTION SELECTOR */}
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "20px 24px" }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Manual Action Selector</div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <select
+              id="actionSelect"
+              style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 14, background: "#fff", color: "#111827" }}>
+              <option value="">-- Select an action to run --</option>
+              {ACTIONS.map(a => (
+                <option key={a.id} value={a.id}>{a.label} — {a.desc}</option>
               ))}
+            </select>
+            <button
+              onClick={() => {
+                const sel = (document.getElementById("actionSelect") as HTMLSelectElement)?.value;
+                if (sel) triggerNow(sel);
+              }}
+              style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#1e293b", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14, whiteSpace: "nowrap" }}>
+              Execute
+            </button>
+          </div>
+          {runResult && (
+            <div style={{ marginTop: 12, padding: "10px 14px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, fontSize: 13, color: "#15803d" }}>
+              {lastRun}: {runResult}
             </div>
           )}
         </div>
 
-        <div style={{borderLeft:"1px solid #1a1a1a",display:"flex",flexDirection:"column",background:"#080808"}}>
-          <div style={{padding:"14px 18px",borderBottom:"1px solid #151515",display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:30,height:30,background:"linear-gradient(135deg,#ff6b35,#f7931e)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>🤖</div>
-            <div><div style={{fontSize:14,fontWeight:700}}>ARIA</div><div style={{fontSize:10,color:"#48bb78"}}>● Online · 20 tools active</div></div>
-          </div>
-          <div style={{flex:1,overflow:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{background:"#111",borderRadius:8,padding:12,fontSize:13,color:"#888",lineHeight:1.6}}>Hey Jeremy 👋 I'm ARIA v2.0. I have 20 real tools — ask me anything about your leads, pipeline, competitors, or system.</div>
-            {resp && <div style={{background:"#111",borderRadius:8,padding:12,fontSize:13,color:"#e0e0e0",whiteSpace:"pre-wrap",lineHeight:1.6}}>{resp}</div>}
-            {loading && <div style={{background:"#111",borderRadius:8,padding:12,fontSize:13,color:"#555"}}>ARIA thinking...</div>}
-          </div>
-          <div style={{padding:14,borderTop:"1px solid #151515"}}>
-            <div style={{display:"flex",gap:8}}>
-              <input value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&ask()} placeholder="Ask ARIA anything..." style={{flex:1,background:"#111",border:"1px solid #2a2a2a",borderRadius:8,padding:"10px 14px",color:"#fff",fontSize:13,outline:"none"}}/>
-              <button onClick={ask} disabled={loading||!msg.trim()} style={{padding:"10px 14px",background:loading?"#222":"#ff6b35",color:"#fff",border:"none",borderRadius:8,cursor:loading?"not-allowed":"pointer",fontSize:15}}>→</button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
-  )
+  );
 }
