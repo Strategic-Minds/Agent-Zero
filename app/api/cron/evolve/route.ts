@@ -58,7 +58,7 @@ export async function GET(req: Request) {
   const next_gaps = pending.slice(0, 3)
 
   // 4. Validate each gap is now implemented by checking endpoints
-  const validation_results = []
+  const validation_results: Array<{ gap_id: string; dimension: string; implemented: boolean }> = []
   for (const gap of next_gaps) {
     let implemented = false
     try {
