@@ -31,6 +31,6 @@ export async function GET() {
     agents: ["ARIA v2.0","APEX v2.0","GHOST v1.0","DISCOVERY v1.0","OUTREACH v1.0","INTELLIGENCE v1.0"],
     checks,
     env_score: `${passing}/${total}`,
-    timestamp: new Date().toISOString(),
+    uptime: process.uptime(), timestamp: new Date().toISOString(),
   })
 }
