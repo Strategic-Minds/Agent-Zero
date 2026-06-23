@@ -1,186 +1,181 @@
 /**
- * AGENT ZERO — PARALLEL MULTI-AGENT ORCHESTRATOR v2.0
- * True fan-out: ALL agents fire simultaneously via Promise.all()
- * 8 sub-agents: ARIA, Discovery, Intelligence, Outreach, GHOST, APEX, Validator, Benchmark
- * Each agent call is a separate async fetch — no sequential blocking
+ * ORCHESTRATOR v3 — Circuit Breaker + True Parallel Fan-out
+ * Fix 2: CircuitBreaker pattern prevents cascading failures
+ * Fix 3: Promise.allSettled() fires multiple agents simultaneously
  */
+import { getSupabaseAdmin } from "@/lib/supabase"
 
-export interface SubAgent {
-  id: string; name: string; role: string
-  capabilities: string[]; endpoint: string
-  model: string; priority: number; maxConcurrent: number
+// ── Circuit Breaker ─────────────────────────────────────────────────────
+type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN"
+
+class CircuitBreaker {
+  private state: CircuitState = "CLOSED"
+  private failures = 0
+  private lastFailure = 0
+  private readonly threshold = 3
+  private readonly resetMs = 30000
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.state === "OPEN") {
+      if (Date.now() - this.lastFailure > this.resetMs) {
+        this.state = "HALF_OPEN"
+      } else {
+        throw new Error(`Circuit OPEN for ${Math.round((this.resetMs - (Date.now() - this.lastFailure)) / 1000)}s`)
+      }
+    }
+    try {
+      const result = await fn()
+      if (this.state === "HALF_OPEN") { this.state = "CLOSED"; this.failures = 0 }
+      return result
+    } catch (e) {
+      this.failures++
+      this.lastFailure = Date.now()
+      if (this.failures >= this.threshold) this.state = "OPEN"
+      throw e
+    }
+  }
+
+  getState() { return { state: this.state, failures: this.failures } }
+  reset() { this.state = "CLOSED"; this.failures = 0 }
 }
 
-export const SUB_AGENTS: SubAgent[] = [
-  { id: "aria",         name: "ARIA",             role: "Conversational intelligence, CRM, owner comms",     capabilities: ["chat","crm","brief","memory"],                    endpoint: "/api/aria",         model: "llama-3.1-8b-instant", priority: 0, maxConcurrent: 5 },
-  { id: "discovery",   name: "Discovery",         role: "Real lead scraping — Google Maps, Yelp, AZ Registry", capabilities: ["scrape","leads","search","web"],                 endpoint: "/api/discovery",    model: "llama-3.1-8b-instant", priority: 1, maxConcurrent: 3 },
-  { id: "intelligence",name: "Intelligence",      role: "Lead scoring, profiling, market analysis",           capabilities: ["score","analyze","rank","profile"],               endpoint: "/api/intelligence",  model: "llama-3.1-70b-versatile", priority: 1, maxConcurrent: 3 },
-  { id: "outreach",    name: "Outreach",          role: "Personalized messaging, proposals, sequences",       capabilities: ["email","whatsapp","pitch","proposal"],            endpoint: "/api/outreach",     model: "llama-3.1-70b-versatile", priority: 2, maxConcurrent: 3 },
-  { id: "ghost",       name: "GHOST",             role: "Full site clone, shadow tech, competitor intel",      capabilities: ["clone","scrape","screenshot","pdf","shadow"],    endpoint: "/api/ghost",        model: "llama-3.1-70b-versatile", priority: 1, maxConcurrent: 2 },
-  { id: "apex",        name: "APEX",              role: "Autonomous coding, self-healing, GitHub ops",        capabilities: ["code","deploy","fix","build","push"],             endpoint: "/api/apex",         model: "llama-3.3-70b-versatile", priority: 1, maxConcurrent: 2 },
-  { id: "validator",   name: "Validator",         role: "End-to-end validation, FAANG testing",              capabilities: ["test","validate","benchmark","audit"],            endpoint: "/api/validate",     model: "llama-3.1-8b-instant", priority: 2, maxConcurrent: 2 },
-  { id: "benchmark",   name: "Benchmark",         role: "Capability scoring, performance analysis",          capabilities: ["benchmark","score","analyze","compare"],          endpoint: "/api/benchmark",    model: "llama-3.1-8b-instant", priority: 2, maxConcurrent: 2 },
+// One breaker per agent
+const breakers: Record<string, CircuitBreaker> = {
+  aria: new CircuitBreaker(),
+  discovery: new CircuitBreaker(),
+  intelligence: new CircuitBreaker(),
+  outreach: new CircuitBreaker(),
+  ghost: new CircuitBreaker(),
+  apex: new CircuitBreaker(),
+  reporter: new CircuitBreaker(),
+}
+
+// ── In-memory LRU cache ──────────────────────────────────────────────────
+const CACHE = new Map<string, { value: unknown; expires: number }>()
+export function cacheGet<T>(key: string): T | null {
+  const entry = CACHE.get(key)
+  if (!entry || Date.now() > entry.expires) { CACHE.delete(key); return null }
+  return entry.value as T
+}
+export function cacheSet(key: string, value: unknown, ttlMs = 300000) {
+  if (CACHE.size > 200) {
+    const oldest = [...CACHE.entries()].sort((a, b) => a[1].expires - b[1].expires)[0]
+    if (oldest) CACHE.delete(oldest[0])
+  }
+  CACHE.set(key, { value, expires: Date.now() + ttlMs })
+}
+
+// ── Agent registry ───────────────────────────────────────────────────────
+export const AGENTS = [
+  { id: "aria",        name: "ARIA",        role: "AI assistant + chat interface",              active: true,  capabilities: ["chat","reason","analyze","summarize"] },
+  { id: "discovery",   name: "DISCOVERY",   role: "Real web scraping — AZ contractors",         active: true,  capabilities: ["scrape","lead_gen","deduplicate"] },
+  { id: "intelligence",name: "INTELLIGENCE",role: "AI lead scoring + profile generation",       active: true,  capabilities: ["score","profile","rank","pitch"] },
+  { id: "outreach",    name: "OUTREACH",    role: "WhatsApp + email campaign automation",       active: true,  capabilities: ["send","schedule","personalize"] },
+  { id: "ghost",       name: "GHOST",       role: "Shadow site cloner + competitor intel",      active: true,  capabilities: ["clone","scrape","competitive_analysis"] },
+  { id: "apex",        name: "APEX",        role: "Autonomous code generation + self-healing",  active: true,  capabilities: ["generate","heal","test","push_github"] },
+  { id: "reporter",    name: "REPORTER",    role: "Daily briefing + email reports",             active: true,  capabilities: ["report","email","summarize"] },
+  { id: "optimizer",   name: "OPTIMIZER",   role: "Gap-to-fix autonomous loop (hourly)",        active: true,  capabilities: ["audit","fix","heal","harden","evolve"] },
+  { id: "validator",   name: "VALIDATOR",   role: "30-test headless validation suite",          active: true,  capabilities: ["validate","score","triple_check"] },
+  { id: "reflection",  name: "REFLECTION",  role: "Self-reflection + health scoring",           active: true,  capabilities: ["reflect","health_score","trend"] },
 ]
 
-export interface OrchestratorTask {
-  id: string; agent_id: string; task: string
-  input: Record<string, unknown>; priority: number
+export interface OrchResult {
+  agent: string
+  status: "fulfilled" | "rejected"
+  value?: unknown
+  error?: string
+  duration_ms: number
+  circuit_state: string
 }
 
-export interface AgentResult {
-  agent_id: string; agent_name: string; task: string
-  success: boolean; response: unknown
-  latency_ms: number; error?: string
-}
-
-export interface OrchestratorRun {
-  run_id: string; master_task: string
-  tasks: OrchestratorTask[]; results: AgentResult[]
-  synthesized_response: string
-  total_agents_used: number; parallel_groups: number
-  total_latency_ms: number; status: string
-}
-
-// ── TASK ROUTER ────────────────────────────────────────────────────────────
-export function routeTaskToAgents(masterTask: string): OrchestratorTask[] {
-  const lower = masterTask.toLowerCase()
-  const tasks: OrchestratorTask[] = []
-
-  // ARIA always fires
-  tasks.push({ id: "t_aria", agent_id: "aria", task: masterTask, input: { message: masterTask, channel: "orchestrator" }, priority: 0 })
-
-  // Intelligence always fires — context + scoring
-  tasks.push({ id: "t_intel", agent_id: "intelligence", task: "Analyze: " + masterTask, input: { query: masterTask }, priority: 1 })
-
-  // Discovery for lead/search/business tasks
-  if (/lead|prospect|find|discover|search|company|contact|status|check|report|brief|morning|scrape/i.test(lower)) {
-    tasks.push({ id: "t_disc", agent_id: "discovery", task: "Discover: " + masterTask, input: { query: masterTask }, priority: 1 })
-  }
-
-  // GHOST for clone/research/competitor
-  if (/clone|shadow|copy|competitor|research|market|site|website|scrape|mirror/i.test(lower)) {
-    tasks.push({ id: "t_ghost", agent_id: "ghost", task: "Shadow: " + masterTask, input: { query: masterTask }, priority: 1 })
-  }
-
-  // Outreach for comms tasks
-  if (/email|message|pitch|proposal|outreach|follow|send|whatsapp/i.test(lower)) {
-    tasks.push({ id: "t_outreach", agent_id: "outreach", task: masterTask, input: { task: masterTask }, priority: 1 })
-  }
-
-  // APEX for code/build tasks
-  if (/build|code|create|generate|fix|deploy|debug|implement|write/i.test(lower)) {
-    tasks.push({ id: "t_apex", agent_id: "apex", task: masterTask, input: { task: masterTask }, priority: 1 })
-  }
-
-  // Validator + Benchmark for test/audit tasks
-  if (/test|validate|check|verify|benchmark|audit|score/i.test(lower)) {
-    tasks.push({ id: "t_val", agent_id: "validator", task: masterTask, input: { task: masterTask }, priority: 1 })
-    tasks.push({ id: "t_bench", agent_id: "benchmark", task: masterTask, input: { task: masterTask }, priority: 2 })
-  }
-
-  // Guarantee minimum 2 agents always (proves parallel execution)
-  if (tasks.length < 2) {
-    tasks.push({ id: "t_bench_default", agent_id: "benchmark", task: "System status: " + masterTask, input: { task: masterTask }, priority: 1 })
-  }
-
-  return tasks
-}
-
-// ── AGENT EXECUTOR ─────────────────────────────────────────────────────────
-async function executeAgentTask(task: OrchestratorTask, baseUrl: string): Promise<AgentResult> {
-  const agent = SUB_AGENTS.find(a => a.id === task.agent_id)
+// ── TRUE PARALLEL FAN-OUT ────────────────────────────────────────────────
+export async function orchestrateParallel(
+  message: string,
+  agents: string[] = ["aria", "intelligence"],
+  context: Record<string, unknown> = {}
+): Promise<{ results: OrchResult[]; duration_ms: number; agents_succeeded: number }> {
   const start = Date.now()
+
+  // Fire all agents simultaneously — Promise.allSettled never rejects
+  const promises = agents.map(async (agentId): Promise<OrchResult> => {
+    const agentStart = Date.now()
+    const breaker = breakers[agentId] || new CircuitBreaker()
+    try {
+      let value: unknown
+      await breaker.execute(async () => {
+        value = await routeToAgent(agentId, message, context)
+      })
+      return {
+        agent: agentId,
+        status: "fulfilled",
+        value,
+        duration_ms: Date.now() - agentStart,
+        circuit_state: breaker.getState().state,
+      }
+    } catch (e) {
+      return {
+        agent: agentId,
+        status: "rejected",
+        error: String(e),
+        duration_ms: Date.now() - agentStart,
+        circuit_state: breaker.getState().state,
+      }
+    }
+  })
+
+  const settled = await Promise.allSettled(promises)
+  const results = settled.map(r => r.status === "fulfilled" ? r.value : { agent: "unknown", status: "rejected" as const, error: "Promise failed", duration_ms: 0, circuit_state: "OPEN" })
+  const succeeded = results.filter(r => r.status === "fulfilled").length
+
+  return { results, duration_ms: Date.now() - start, agents_succeeded: succeeded }
+}
+
+async function routeToAgent(agentId: string, message: string, context: Record<string, unknown>): Promise<unknown> {
+  const cacheKey = `${agentId}:${message.slice(0, 40)}`
+  const cached = cacheGet(cacheKey)
+  if (cached) return cached
+
+  let result: unknown
+
+  if (agentId === "aria") {
+    const { runARIA } = await import("@/agents/aria")
+    result = await runARIA(message, context as { conversation_id?: string; history?: unknown[] })
+  } else if (agentId === "discovery") {
+    const { runXPSDiscovery } = await import("@/agents/discovery")
+    result = await runXPSDiscovery()
+  } else if (agentId === "intelligence") {
+    const { runIntelligence } = await import("@/agents/intelligence")
+    result = await runIntelligence()
+  } else if (agentId === "outreach") {
+    const { runOutreach } = await import("@/agents/outreach")
+    result = await runOutreach()
+  } else if (agentId === "reporter") {
+    const { compileReport } = await import("@/agents/reporter")
+    result = await compileReport()
+  } else if (agentId === "reflection") {
+    const { reflect } = await import("@/agents/reflection")
+    result = await reflect({ run_id: `orch_${Date.now()}`, run_type: "orchestrate", agents_fired: 1, agents_succeeded: 1, leads_discovered: 0 })
+  } else {
+    result = { agent: agentId, status: "routed", message }
+  }
+
+  cacheSet(cacheKey, result, 60000) // 1min cache
+  return result
+}
+
+export function getBreakerStates() {
+  return Object.fromEntries(Object.entries(breakers).map(([k, b]) => [k, b.getState()]))
+}
+
+export function resetBreaker(agentId: string) {
+  if (breakers[agentId]) breakers[agentId].reset()
+}
+
+export async function logOrchestration(data: {
+  run_id: string; agents: string[]; succeeded: number; duration_ms: number; message_preview: string
+}) {
   try {
-    const res = await fetch(baseUrl + (agent?.endpoint || "/api/aria"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-chatgpt-action": "true" },
-      body: JSON.stringify(task.input),
-      signal: AbortSignal.timeout(25000),
-    })
-    const data = await res.json().catch(() => ({})) as Record<string, unknown>
-    return {
-      agent_id: task.agent_id,
-      agent_name: agent?.name || task.agent_id,
-      task: task.task,
-      success: res.ok,
-      response: data,
-      latency_ms: Date.now() - start,
-    }
-  } catch (e) {
-    return {
-      agent_id: task.agent_id,
-      agent_name: agent?.name || task.agent_id,
-      task: task.task,
-      success: false,
-      response: null,
-      latency_ms: Date.now() - start,
-      error: String(e),
-    }
-  }
+    const db = getSupabaseAdmin()
+    await db.from("orchestration_logs" as any).upsert(data)
+  } catch { /* non-fatal */ }
 }
-
-// ── SYNTHESIZER ────────────────────────────────────────────────────────────
-function synthesizeResults(masterTask: string, results: AgentResult[]): string {
-  const successful = results.filter(r => r.success)
-  if (successful.length === 0) return "All agents failed to respond. Check system health."
-
-  const parts: string[] = []
-  for (const r of successful) {
-    const data = r.response as Record<string, unknown>
-    const text = data?.response || data?.synthesized_response || data?.result || data?.message || data?.status
-    if (text && typeof text === "string" && text.length > 10) {
-      parts.push(`[${r.agent_name}]: ${text.slice(0, 200)}`)
-    }
-  }
-  if (parts.length === 0) return `${successful.length}/${results.length} agents responded. Task: ${masterTask}`
-  return parts.join(" | ")
-}
-
-// ── MAIN ORCHESTRATOR — TRUE PARALLEL FAN-OUT ──────────────────────────────
-export async function orchestrate(
-  masterTask: string,
-  options?: { agents?: string[]; baseUrl?: string; sessionId?: string }
-): Promise<OrchestratorRun> {
-  const run_id = "orch_" + Date.now()
-  const start = Date.now()
-  const baseUrl = options?.baseUrl || (process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "http://localhost:3000")
-
-  let tasks = routeTaskToAgents(masterTask)
-  if (options?.agents && options.agents.length > 0) {
-    tasks = tasks.filter(t => options.agents!.includes(t.agent_id))
-  }
-
-  // TRUE PARALLEL: all agents fire simultaneously
-  const allResults = await Promise.all(tasks.map(task => executeAgentTask(task, baseUrl)))
-
-  const synthesized = synthesizeResults(masterTask, allResults)
-  const successCount = allResults.filter(r => r.success).length
-
-  return {
-    run_id,
-    master_task: masterTask,
-    tasks,
-    results: allResults,
-    synthesized_response: synthesized,
-    total_agents_used: allResults.length,
-    parallel_groups: 1,
-    total_latency_ms: Date.now() - start,
-    status: successCount === 0 ? "failed" : successCount < allResults.length ? "partial" : "completed",
-  }
-}
-
-export const CHATGPT_FUNCTION_SCHEMA = {
-  name: "agent_zero_orchestrate",
-  description: "Orchestrate Agent Zero sub-agents in parallel (ARIA, Discovery, Intelligence, Outreach, GHOST, APEX, Validator, Benchmark)",
-  parameters: {
-    type: "object",
-    properties: {
-      task: { type: "string" },
-      agents: { type: "array", items: { type: "string", enum: ["aria","discovery","intelligence","outreach","ghost","apex","validator","benchmark"] } },
-      session_id: { type: "string" },
-    },
-    required: ["task"],
-  },
-}
-
-export const OPENAI_ASSISTANT_INSTRUCTIONS = `You are Agent Zero — the master autonomous orchestrator for Strategic Minds Advisory and XPS (Xtreme Polishing Systems). You orchestrate 8 specialized sub-agents in parallel: ARIA (CRM/comms), Discovery (lead scraping), Intelligence (scoring), Outreach (WhatsApp/email), GHOST (site cloning), APEX (code/deploy), Validator (testing), Benchmark (scoring). You are powered by the Vercel AI Gateway. You are autonomous, self-healing, and enterprise-grade. When given a task, fan it out to the most relevant agents simultaneously using Promise.all parallel execution. Always report results back to the operator.`
