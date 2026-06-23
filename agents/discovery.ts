@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 export async function getGoogleMapsPlaces(terms: string, location: string, radius: number): Promise<any> {
   try {
-    const url = `${GoogleMapsPlacesApiUrl}?key=${GoogleMapsPlacesApiKey}&query=${terms}&location=${location}&radius=${radius}`;
+    const url = `${"https://maps.googleapis.com/maps/api/place/textsearch/json"}?key=${(process.env.GOOGLE_MAPS_API_KEY || "")}&query=${terms}&location=${location}&radius=${radius}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -17,7 +17,7 @@ export async function getGoogleMapsPlaces(terms: string, location: string, radiu
 
 export async function getAzCorpCommission(data: any): Promise<any> {
   try {
-    const url = `${AzCorpCommissionApiUrl}?key=${AzCorpCommissionApiKey}`;
+    const url = `${"https://ecorp.azcc.gov/api"}?key=${(process.env.AZ_CORP_API_KEY || "")}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
