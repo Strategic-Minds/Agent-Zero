@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (action === "scrape_url" && body.url) {
-      const result = await shadowScrapeURL(body.url, { screenshot: false })
+      const result = await shadowScrapeURL(body.url)
       return NextResponse.json({ ok: true, action, result })
     }
     if (action === "scrape_parallel" && body.urls?.length) {
