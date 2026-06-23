@@ -75,8 +75,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── STANDARD JSON RESPONSE ──────────────────────────────────────
-    const { runARIA } = await import("@/agents/aria")
-    const result = await runARIA(message, { conversation_id: body.conversation_id, history: body.history || [] })
+    const { chat } = await import("@/agents/aria")
+    const result = await chat(message, { conversation_id: body.conversation_id, history: body.history as { role: string; content: string }[] || [] })
     return NextResponse.json({ ok: true, ...result })
 
   } catch (e) {
