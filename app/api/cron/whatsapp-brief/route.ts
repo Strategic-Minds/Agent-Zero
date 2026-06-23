@@ -1,10 +1,7 @@
 /**
- * CRON: Daily WhatsApp Lead Brief
- * Discovers leads, scores them, sends top 5 to owner via WhatsApp
- * Schedule: Every weekday at 8:00 AM ET (13:00 UTC) via vercel.json
+ * CRON: Daily WhatsApp Lead Brief - weekdays 8AM ET
  */
 import { NextRequest, NextResponse } from "next/server";
-import { ai } from "@/lib/ai";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 55;
@@ -16,32 +13,27 @@ export async function GET(req: NextRequest) {
   }
 
   const start = Date.now();
-  const base  = req.headers.get("x-forwarded-host")
-    ? `https://${req.headers.get("x-forwarded-host")}`
-    : "https://agent-zero-pspyutj5b-strategic-minds-advisory.vercel.app";
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  const host  = req.headers.get("x-forwarded-host")  || req.headers.get("host") || "localhost:3000";
+  const base  = proto + "://" + host;
 
   try {
-    // 1. Discover leads
-    const scrapeResp = await fetch(`${base}/api/scrape`, {
+    const scrapeResp = await fetch(base + "/api/scrape", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: "concrete epoxy flooring contractor Arizona" }),
-      signal: AbortSignal.timeout(20000),
     });
     const scrapeData = await scrapeResp.json() as { leads?: Array<{company:string;city?:string;phone?:string;snippet?:string;score?:number;pitch_opener?:string}> };
     const leads = scrapeData.leads || [];
 
-    // 2. Score leads via score-batch
-    const scoreResp = await fetch(`${base}/api/score-batch`, {
+    const scoreResp = await fetch(base + "/api/score-batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ companies: leads.map(l => ({ name: l.company, city: l.city, notes: l.snippet })) }),
-      signal: AbortSignal.timeout(30000),
     });
-    const scoreData = await scoreResp.json() as { companies?: Array<{name:string;lead_score:number;priority_tier:string;pitch_angle:string;next_action:string}> };
+    const scoreData = await scoreResp.json() as { companies?: Array<{name:string;lead_score:number;priority_tier:string;pitch_angle:string}> };
     const scored = scoreData.companies || [];
 
-    // 3. Merge score data back into leads
     const enriched = leads.map(l => {
       const s = scored.find(sc => sc.name === l.company);
       return {
@@ -54,12 +46,10 @@ export async function GET(req: NextRequest) {
       };
     }).sort((a,b) => b.score - a.score);
 
-    // 4. Send WhatsApp brief
-    const waResp = await fetch(`${base}/api/whatsapp-outreach`, {
+    const waResp = await fetch(base + "/api/whatsapp-outreach", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ leads: enriched.slice(0,5), mode: "brief" }),
-      signal: AbortSignal.timeout(15000),
     });
     const waData = await waResp.json() as { ok: boolean; error?: string };
 
