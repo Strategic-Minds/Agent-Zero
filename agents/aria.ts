@@ -1,6 +1,6 @@
 /**
  * ARIA - Autonomous Reasoning Intelligence Agent
- * Vercel AI Gateway | Groq | OpenAI | static fallback
+ * Vercel AI Gateway primary | Groq | OpenAI | static fallback
  */
 import { aiChat } from "@/lib/ai";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -20,12 +20,13 @@ export interface ARIAResult {
   toolsUsed: string[];
   tokens?: number;
   latency_ms?: number;
+  latencyMs?: number;
 }
 
 const ARIA_SYSTEM = `You are ARIA, the AI assistant for Xtreme Polishing Systems (XPS).
 XPS does commercial epoxy flooring and concrete polishing in Arizona.
-Be professional, concise, and action-oriented.
-Always move toward booking a free site assessment or closing a deal.`;
+Be professional, concise, action-oriented.
+Goal: book free site assessment or close a deal.`;
 
 export async function chat(
   message: string,
@@ -49,6 +50,7 @@ export async function chat(
   } catch { /* non-fatal */ }
 
   const convId = conversation_id || ("aria_" + Date.now());
+  const elapsed = Date.now() - start;
   return {
     reply: res.content,
     response: res.content,
@@ -57,7 +59,8 @@ export async function chat(
     provider: res.provider,
     model: res.model,
     toolsUsed: ["vercel_ai_gateway"],
-    latency_ms: Date.now() - start,
+    latency_ms: elapsed,
+    latencyMs: elapsed,
   };
 }
 
@@ -75,8 +78,8 @@ export async function ariaWhatsAppReply(
   company_name: string,
   context: string
 ): Promise<string> {
-  const system = "Sales assistant for XPS (epoxy flooring, AZ). " +
-    "Reply to " + company_name + ". Context: " + context +
+  const system = "Sales assistant for XPS (epoxy flooring AZ). " +
+    "Replying to " + company_name + ". Context: " + context +
     ". Under 100 words. Goal: book free site assessment.";
   const res = await aiChat(system, message, { maxTokens: 150 });
   return res.content;
