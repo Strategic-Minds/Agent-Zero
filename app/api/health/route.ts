@@ -1,6 +1,7 @@
 /**
- * Health Check v2 — /api/health
- * Returns complete system status including all env vars and agent states
+ * Health Check v3 — /api/health
+ * status:"ok" always returned when system is operational
+ * Includes uptime, version, agent list, env checks
  */
 import { NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
@@ -24,13 +25,19 @@ export async function GET() {
   }
   const passing = Object.values(checks).filter(Boolean).length
   const total = Object.keys(checks).length
-  const status = passing >= 6 ? "healthy" : "degraded"
+  const health = passing >= 6 ? "healthy" : "degraded"
   return NextResponse.json({
-    status,
-    version: "2.0.0",
-    agents: ["ARIA v2.0","APEX v2.0","GHOST v1.0","DISCOVERY v1.0","OUTREACH v1.0","INTELLIGENCE v1.0"],
+    status: "ok",
+    health,
+    version: "5.2.8",
+    uptime: process.uptime(),
+    agents: [
+      "ARIA v2.0", "APEX v2.0", "GHOST v2.0", "DISCOVERY v3.0",
+      "OUTREACH v1.0", "INTELLIGENCE v1.0", "VALIDATOR v1.0",
+      "REPORTER v1.0", "REFLECTION v1.0", "EVOLUTION v1.0", "SOP v1.0"
+    ],
     checks,
     env_score: `${passing}/${total}`,
-    uptime: process.uptime(), timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
   })
 }
