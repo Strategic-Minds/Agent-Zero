@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, action, result })
     }
     if (action === "competitor_intel") {
-      const result = await runCompetitorIntel(body.query || "Phoenix Arizona")
+      const result = await runCompetitorIntel()
       return NextResponse.json({ ok: true, action, result })
     }
     return NextResponse.json({ error: "action required: scrape_url | scrape_parallel | clone_site | competitor_intel" }, { status: 400 })
