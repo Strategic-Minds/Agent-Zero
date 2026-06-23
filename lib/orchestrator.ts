@@ -225,7 +225,7 @@ export async function orchestrate(
   message: string,
   preferredAgentOrOptions: string | { agents?: string[]; baseUrl?: string; sessionId?: string } = "aria",
   context: Record<string, unknown> = {}
-): Promise<{ run_id: string; status: string; synthesized_response: string; results: Array<{ agent_name: string; success: boolean; latency_ms: number; response?: unknown; error?: string }>; parallel_groups: number }> {
+): Promise<{ run_id: string; status: string; synthesized_response: string; results: Array<{ agent_name: string; success: boolean; latency_ms: number; response?: unknown; error?: string }>; parallel_groups: number; total_latency_ms: number }> {
   let agents = ["aria"]
   if (typeof preferredAgentOrOptions === "string") {
     agents = [preferredAgentOrOptions]
