@@ -154,11 +154,11 @@ async function routeToAgent(agentId: string, message: string, context: Record<st
     const { runXPSDiscovery } = await import("@/agents/discovery")
     result = await runXPSDiscovery()
   } else if (agentId === "intelligence") {
-    const { runIntelligence } = await import("@/agents/intelligence")
-    result = await runIntelligence()
+    const { scoreUnscored } = await import("@/agents/intelligence")
+    result = await scoreUnscored()
   } else if (agentId === "outreach") {
-    const { runOutreach } = await import("@/agents/outreach")
-    result = await runOutreach()
+    const { generateOutreachBatch } = await import("@/agents/outreach")
+    result = await generateOutreachBatch()
   } else if (agentId === "reporter") {
     const { compileReport } = await import("@/agents/reporter")
     result = await compileReport()
