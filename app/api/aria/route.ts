@@ -1,7 +1,5 @@
 /**
- * ARIA API v5 — /api/aria
- * DIRECT call to lib/ai.ts (no dynamic import, no agents/aria.ts wrapper)
- * Same pattern as /api/ai-test which proves 27ms Groq response
+ * ARIA API v6 — /api/aria — direct aiChat with debug trace
  */
 import { NextRequest, NextResponse } from "next/server";
 import { aiChat, aiProviderStatus } from "@/lib/ai";
@@ -10,58 +8,58 @@ export const dynamic  = "force-dynamic";
 export const runtime  = "nodejs";
 export const maxDuration = 45;
 
-const ARIA_SYSTEM = `You are ARIA, the AI assistant for Xtreme Polishing Systems (XPS).
-XPS does commercial epoxy flooring and concrete polishing in Arizona.
-Be professional, concise, and action-oriented. Help book free site assessments.`;
+const SYSTEM = "You are ARIA, the XPS AI assistant. Be concise and professional.";
 
 export async function GET() {
-  const status = aiProviderStatus();
-  return NextResponse.json({
-    agent: "ARIA v5", status: "active",
-    active_provider: status.active_provider,
-    groq_model: status.groq_model,
-    capabilities: ["chat","reason","analyze","lead_query","score","stream"],
-  });
+  const s = aiProviderStatus();
+  return NextResponse.json({ agent:"ARIA v6", status:"active",
+    active_provider: s.active_provider, groq_model: s.groq_model });
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({})) as {
-    message?: string; conversation_id?: string;
-    history?: unknown[]; stream?: boolean; channel?: string;
-  };
+  const t0 = Date.now();
+  const provStatus = aiProviderStatus();
+  
+  let bodyErr = "";
+  let body: { message?:string; conversation_id?:string; stream?:boolean; channel?:string } = {};
+  try {
+    body = await req.json();
+  } catch(e) {
+    bodyErr = String(e);
+  }
+  
   const message = (body.message || "Hello").slice(0, 2000);
-  const convId  = body.conversation_id || "aria_" + Date.now();
-  const start   = Date.now();
-
-  const res = await aiChat(ARIA_SYSTEM, message, { maxTokens: 600 });
-
-  // Fire-and-forget Supabase log (non-blocking)
-  if (res.provider !== "static") {
-    setImmediate(async () => {
-      try {
-        const { getSupabaseAdmin } = await import("@/lib/supabase");
-        const db = getSupabaseAdmin();
-        await db.from("call_logs" as any).insert({
-          company_name: "ARIA Session",
-          call_date: new Date().toISOString(),
-          call_outcome: "aria_chat",
-          call_notes: `Q: ${message.slice(0,120)} | A: ${res.content.slice(0,120)}`,
-          ai_call_summary: `Provider: ${res.provider}`,
-        });
-      } catch { /* non-fatal */ }
-    });
+  
+  let aiResult: Awaited<ReturnType<typeof aiChat>> | null = null;
+  let aiErr = "";
+  
+  try {
+    aiResult = await aiChat(SYSTEM, message, { maxTokens: 400 });
+  } catch(e) {
+    aiErr = String(e);
+    aiResult = { content: "AI call threw: " + aiErr, model: "error", provider: "static" };
   }
 
+  const elapsed = Date.now() - t0;
+
   return NextResponse.json({
-    ok: true,
-    response:        res.content,
-    reply:           res.content,
-    content:         res.content,
-    conversation_id: convId,
-    provider:        res.provider,
-    model:           res.model,
-    toolsUsed:       ["lib_ai"],
-    latency_ms:      Date.now() - start,
-    latencyMs:       Date.now() - start,
+    ok: !aiErr,
+    response:        aiResult!.content,
+    reply:           aiResult!.content,
+    content:         aiResult!.content,
+    conversation_id: body.conversation_id || "aria_" + t0,
+    provider:        aiResult!.provider,
+    model:           aiResult!.model,
+    latency_ms:      elapsed,
+    latencyMs:       elapsed,
+    // debug fields
+    _debug: {
+      prov_status_at_startup: provStatus,
+      body_err: bodyErr || null,
+      ai_err:   aiErr   || null,
+      groq_key_length: (process.env.GROQ_API_KEY || "").length,
+      oai_key_length:  (process.env.OPENAI_API_KEY || "").length,
+      gw_key_length:   (process.env.AI_GATEWAY_API_KEY || "").length,
+    },
   });
 }
