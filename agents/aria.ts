@@ -1,6 +1,6 @@
 /**
  * ARIA - Autonomous Reasoning Intelligence Agent
- * Uses Vercel AI Gateway (no OpenAI key needed)
+ * Vercel AI Gateway | Groq | OpenAI | static fallback
  */
 import { aiChat } from "@/lib/ai";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -13,13 +13,17 @@ export interface ARIAMessage {
 export interface ARIAResult {
   reply: string;
   response: string;
+  content: string;
   conversation_id: string;
   provider: string;
+  model: string;
   toolsUsed: string[];
+  tokens?: number;
+  latency_ms?: number;
 }
 
 const ARIA_SYSTEM = `You are ARIA, the AI assistant for Xtreme Polishing Systems (XPS).
-XPS is a commercial epoxy flooring and concrete polishing company in Arizona.
+XPS does commercial epoxy flooring and concrete polishing in Arizona.
 Be professional, concise, and action-oriented.
 Always move toward booking a free site assessment or closing a deal.`;
 
@@ -29,6 +33,7 @@ export async function chat(
   conversation_id?: string,
   context?: string
 ): Promise<ARIAResult> {
+  const start = Date.now();
   const system = context ? ARIA_SYSTEM + "\n\nContext: " + context : ARIA_SYSTEM;
   const res = await aiChat(system, message, { model: "gpt-4o-mini", maxTokens: 600 });
 
@@ -47,9 +52,12 @@ export async function chat(
   return {
     reply: res.content,
     response: res.content,
+    content: res.content,
     conversation_id: convId,
     provider: res.provider,
+    model: res.model,
     toolsUsed: ["vercel_ai_gateway"],
+    latency_ms: Date.now() - start,
   };
 }
 
@@ -67,9 +75,9 @@ export async function ariaWhatsAppReply(
   company_name: string,
   context: string
 ): Promise<string> {
-  const system = "You are the autonomous sales assistant for Xtreme Polishing Systems (XPS). " +
-    "Replying to WhatsApp from: " + company_name + ". Context: " + context + ". " +
-    "Keep reply under 100 words. Goal: qualify lead and book free site assessment.";
+  const system = "Sales assistant for XPS (epoxy flooring, AZ). " +
+    "Reply to " + company_name + ". Context: " + context +
+    ". Under 100 words. Goal: book free site assessment.";
   const res = await aiChat(system, message, { maxTokens: 150 });
   return res.content;
 }
