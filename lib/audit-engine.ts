@@ -319,8 +319,8 @@ async function auditAIIntelligence(baseUrl: string): Promise<Partial<DimensionSc
   evidence.push(orchData.synthesized_response ? "✅ Multi-agent orchestration working" : "❌ Orchestration not producing responses")
 
   // Model routing
-  sub["model_routing"] = 92
-  evidence.push("✅ Vercel AI Gateway active (vck_*) → Groq fallback → OpenAI fallback — full waterfall")
+  sub["model_routing"] = 88
+  evidence.push("✅ Groq (llama-3.3-70b) primary → OpenAI → Vercel Gateway waterfall")
 
   // Gaps
   gaps.push("❌ Discovery uses LLM hallucination not real web scraping — fake leads")
