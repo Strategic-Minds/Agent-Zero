@@ -11,6 +11,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const { runDiscovery } = await import('@/agents/discovery')
-  const result = await runDiscovery({ location: 'Arizona', maxLeads: 50 })
+  const result = await runDiscovery({ location: 'Arizona', limit: 50 })
   return NextResponse.json({ success: true, ...result })
 }
