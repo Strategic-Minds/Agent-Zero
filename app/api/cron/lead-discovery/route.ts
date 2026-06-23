@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const { runDiscovery } = await import('@/agents/discovery')
-  const result = await runDiscovery({ location: 'Arizona', limit: 50 })
+  const { runXPSDiscovery } = await import('@/agents/discovery')
+  const result = await runXPSDiscovery(50)
   return NextResponse.json({ success: true, ...result })
 }
