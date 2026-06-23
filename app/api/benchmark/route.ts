@@ -8,7 +8,7 @@ export const maxDuration = 300
 export async function GET() {
   const latest = await getLatestBenchmarkRun()
   const stats = getCapabilityStats()
-  return NextResponse.json({ stats, latest, capabilities: TOP_30_CAPABILITIES })
+  return NextResponse.json({ score: stats.avgCurrent, overall_score: stats.avgCurrent, stats, latest, capabilities: TOP_30_CAPABILITIES })
 }
 
 export async function POST(req: Request) {
