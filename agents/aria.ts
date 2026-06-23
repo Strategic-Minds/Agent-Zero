@@ -1,9 +1,8 @@
 /**
  * ARIA - Autonomous Reasoning Intelligence Agent
  * Uses Vercel AI Gateway (no OpenAI key needed)
- * Waterfall: Gateway -> Groq -> OpenAI -> static
  */
-import { aiChat, aiProviderStatus } from "@/lib/ai";
+import { aiChat } from "@/lib/ai";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export interface ARIAMessage {
@@ -13,9 +12,10 @@ export interface ARIAMessage {
 
 export interface ARIAResult {
   reply: string;
-  response: string;        // alias of reply (required by /api/chat and validator)
+  response: string;
   conversation_id: string;
   provider: string;
+  toolsUsed: string[];
 }
 
 const ARIA_SYSTEM = `You are ARIA, the AI assistant for Xtreme Polishing Systems (XPS).
@@ -46,9 +46,10 @@ export async function chat(
   const convId = conversation_id || ("aria_" + Date.now());
   return {
     reply: res.content,
-    response: res.content,   // alias so both /api/chat and validator work
+    response: res.content,
     conversation_id: convId,
     provider: res.provider,
+    toolsUsed: ["vercel_ai_gateway"],
   };
 }
 
