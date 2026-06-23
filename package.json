@@ -1,6 +1,6 @@
 {
   "name": "agent-zero",
-  "version": "2.1.0",
+  "version": "6.1.4-rebuild",
   "description": "Agent Zero \u2014 Enterprise FAANG-grade AI Agent System",
   "private": true,
   "scripts": {
