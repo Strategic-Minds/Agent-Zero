@@ -1,7 +1,8 @@
-export const BUILD_TIME = "2026-06-23T05:43:48.274308";
-export const VERSION = "6.2.0";
+export const BUILD_TIME = "2026-06-23T05:48:25.830789";
+export const VERSION = "6.2.1";
 export const FEATURES = {
   ai_intelligence: true,
+  vercel_ai_gateway: true,
   sse_streaming: true,
   revenue_tracking: true,
   real_metrics: true,
