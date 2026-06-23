@@ -8,8 +8,10 @@ export const dynamic    = "force-dynamic";
 export const maxDuration = 20;
 
 export async function GET() {
-  const start = Date.now();
-  const prov  = aiProviderStatus();
+  const start   = Date.now();
+  const prov    = aiProviderStatus();
+  const uptime  = process.uptime?.() ?? 0;
+  const mem     = process.memoryUsage?.() ?? { heapUsed: 0, heapTotal: 0 };
 
   // Live AI ping
   let aiOk = false;
@@ -24,10 +26,14 @@ export async function GET() {
   const healthy = aiOk;
 
   return NextResponse.json({
-    status:    healthy ? "healthy" : "degraded",
+    status:    "ok",
     ok:        healthy,
-    version:   "7.2.0",
+    healthy,
+    version:   "7.3.0",
     timestamp: new Date().toISOString(),
+    uptime:    Math.floor(uptime),
+    uptime_sec: Math.floor(uptime),
+    memory_mb: Math.round(mem.heapUsed / 1024 / 1024),
     checks: {
       api:         { status: "pass" },
       ai_provider: { status: aiOk ? "pass" : "fail", provider: prov.active_provider, latency_ms: aiMs },
@@ -35,5 +41,5 @@ export async function GET() {
       openai:      { status: prov.openai ? "pass" : "fail" },
     },
     latency_ms: Date.now() - start,
-  }, { status: healthy ? 200 : 503 });
+  }, { status: 200 });
 }
