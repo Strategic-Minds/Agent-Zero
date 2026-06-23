@@ -1,7 +1,11 @@
 /**
  * VERCEL AI GATEWAY - Central AI client
- * Priority: Vercel AI Gateway > Groq > OpenAI > static
+ * Uses Vercel AI SDK (already installed)
+ * Priority: Vercel AI Gateway (OIDC) > Groq SDK > OpenAI SDK > static
  */
+import { generateText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createGroq } from "@ai-sdk/groq";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -14,67 +18,76 @@ export interface AIResponse {
   provider: "vercel_gateway" | "groq" | "openai" | "static";
 }
 
-async function tryGateway(msgs: ChatMessage[], model: string, maxTokens: number): Promise<string | null> {
+// Vercel AI Gateway - uses VERCEL_OIDC_TOKEN auto-injected by Vercel
+// Compatible endpoint with OpenAI SDK format
+function getGatewayProvider() {
   const token = process.env.VERCEL_OIDC_TOKEN;
   if (!token) return null;
-  try {
-    const r = await fetch("https://ai.vercel.app/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-      body: JSON.stringify({ model, messages: msgs, max_tokens: maxTokens, temperature: 0.7 }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!r.ok) return null;
-    const d = await r.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return d.choices?.[0]?.message?.content ?? null;
-  } catch { return null; }
+  return createOpenAI({
+    baseURL: "https://ai.vercel.app/api/v1",
+    apiKey: token,
+  });
 }
 
-async function tryGroq(msgs: ChatMessage[], maxTokens: number): Promise<string | null> {
+function getGroqProvider() {
   const key = process.env.GROQ_API_KEY;
   if (!key) return null;
-  try {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "llama-3.1-70b-versatile", messages: msgs, max_tokens: maxTokens }),
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!r.ok) return null;
-    const d = await r.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return d.choices?.[0]?.message?.content ?? null;
-  } catch { return null; }
+  return createGroq({ apiKey: key });
 }
 
-async function tryOpenAI(msgs: ChatMessage[], model: string, maxTokens: number): Promise<string | null> {
+function getOpenAIProvider() {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
-  try {
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model, messages: msgs, max_tokens: maxTokens }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!r.ok) return null;
-    const d = await r.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return d.choices?.[0]?.message?.content ?? null;
-  } catch { return null; }
+  return createOpenAI({ apiKey: key });
 }
 
 export async function ai(
   messages: ChatMessage[],
   options: { model?: string; maxTokens?: number } = {}
 ): Promise<AIResponse> {
-  const model = options.model ?? "gpt-4o-mini";
   const maxTokens = options.maxTokens ?? 500;
-  const gw = await tryGateway(messages, model, maxTokens);
-  if (gw) return { content: gw, model, provider: "vercel_gateway" };
-  const groq = await tryGroq(messages, maxTokens);
-  if (groq) return { content: groq, model: "llama-3.1-70b", provider: "groq" };
-  const oai = await tryOpenAI(messages, model, maxTokens);
-  if (oai) return { content: oai, model, provider: "openai" };
-  return { content: "AI unavailable - try again shortly.", model: "static", provider: "static" };
+
+  // 1. Try Vercel AI Gateway first
+  const gateway = getGatewayProvider();
+  if (gateway) {
+    try {
+      const { text } = await generateText({
+        model: gateway(options.model ?? "gpt-4o-mini"),
+        messages,
+        maxTokens,
+      });
+      return { content: text, model: options.model ?? "gpt-4o-mini", provider: "vercel_gateway" };
+    } catch { /* fall through */ }
+  }
+
+  // 2. Groq fallback (GROQ_API_KEY is set in Vercel)
+  const groq = getGroqProvider();
+  if (groq) {
+    try {
+      const { text } = await generateText({
+        model: groq("llama-3.1-70b-versatile"),
+        messages,
+        maxTokens,
+      });
+      return { content: text, model: "llama-3.1-70b-versatile", provider: "groq" };
+    } catch { /* fall through */ }
+  }
+
+  // 3. OpenAI direct
+  const oai = getOpenAIProvider();
+  if (oai) {
+    try {
+      const { text } = await generateText({
+        model: oai(options.model ?? "gpt-4o-mini"),
+        messages,
+        maxTokens,
+      });
+      return { content: text, model: options.model ?? "gpt-4o-mini", provider: "openai" };
+    } catch { /* fall through */ }
+  }
+
+  // 4. Static fallback
+  return { content: "AI unavailable - please try again shortly.", model: "static", provider: "static" };
 }
 
 export async function aiChat(
