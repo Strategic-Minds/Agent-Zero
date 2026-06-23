@@ -1,6 +1,7 @@
 /**
  * AI CLIENT — Vercel AI Gateway primary
- * Priority: AI_GATEWAY_API_KEY (Vercel Gateway) > GROQ_API_KEY > OPENAI_API_KEY > static
+ * Key: vck_* (Vercel Connect Key) uses Vercel AI Gateway
+ * Priority: AI_GATEWAY_API_KEY → GROQ_API_KEY → OPENAI_API_KEY → static
  */
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -18,24 +19,30 @@ export interface AIResponse {
 }
 
 function getGatewayProvider() {
-  const key = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
-  if (!key) return null;
-  // Vercel AI Gateway is OpenAI-compatible
+  const key = process.env.AI_GATEWAY_API_KEY;
+  if (!key || key.length < 10) return null;
+  
+  // vck_ keys work with Vercel AI Gateway via openai-compatible endpoint
+  // The base URL for Vercel AI Gateway
+  const baseURL = process.env.AI_GATEWAY_BASE_URL || "https://api.vercel.com/v1/ai/gateway";
   return createOpenAI({
-    baseURL: "https://ai.vercel.app/api/v1",
+    baseURL,
     apiKey: key,
+    defaultHeaders: {
+      "Authorization": `Bearer ${key}`,
+    },
   });
 }
 
 function getGroqProvider() {
   const key = process.env.GROQ_API_KEY;
-  if (!key) return null;
+  if (!key || key.length < 10) return null;
   return createGroq({ apiKey: key });
 }
 
 function getOpenAIProvider() {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
+  if (!key || key.length < 10) return null;
   return createOpenAI({ apiKey: key });
 }
 
@@ -46,12 +53,14 @@ export async function ai(
   const maxTokens = options.maxTokens ?? 500;
   const model = options.model ?? "gpt-4o-mini";
 
-  // 1. Vercel AI Gateway (AI_GATEWAY_API_KEY)
+  // 1. Vercel AI Gateway (vck_ key)
   const gateway = getGatewayProvider();
   if (gateway) {
     try {
       const { text } = await generateText({ model: gateway(model), messages, maxTokens });
-      return { content: text, model, provider: "vercel_gateway" };
+      if (text && text.length > 0) {
+        return { content: text, model, provider: "vercel_gateway" };
+      }
     } catch { /* fall through */ }
   }
 
@@ -64,7 +73,9 @@ export async function ai(
         messages,
         maxTokens,
       });
-      return { content: text, model: "llama-3.1-70b-versatile", provider: "groq" };
+      if (text && text.length > 0) {
+        return { content: text, model: "llama-3.1-70b-versatile", provider: "groq" };
+      }
     } catch { /* fall through */ }
   }
 
@@ -73,7 +84,9 @@ export async function ai(
   if (oai) {
     try {
       const { text } = await generateText({ model: oai(model), messages, maxTokens });
-      return { content: text, model, provider: "openai" };
+      if (text && text.length > 0) {
+        return { content: text, model, provider: "openai" };
+      }
     } catch { /* fall through */ }
   }
 
@@ -106,14 +119,16 @@ export async function aiJSON<T = Record<string, unknown>>(
 }
 
 export function aiProviderStatus() {
-  const gw   = !!(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
-  const groq  = !!process.env.GROQ_API_KEY;
-  const oai   = !!process.env.OPENAI_API_KEY;
+  const gwKey = process.env.AI_GATEWAY_API_KEY || "";
+  const gw   = gwKey.length >= 10;
+  const groq  = (process.env.GROQ_API_KEY || "").length >= 10;
+  const oai   = (process.env.OPENAI_API_KEY || "").length >= 10;
   return {
     vercel_gateway: gw,
     groq,
     openai: oai,
     active_provider: gw ? "vercel_gateway" : groq ? "groq" : oai ? "openai" : "static",
+    gateway_key_prefix: gwKey.substring(0, 6) || "none",
   };
 }
 
