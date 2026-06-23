@@ -66,7 +66,17 @@ export function cacheSet(key: string, value: unknown, ttlMs = 300000) {
 }
 
 // ── Agent registry ───────────────────────────────────────────────────────
-export const AGENTS = [
+
+interface AgentDef {
+  id: string
+  name: string
+  role: string
+  active: boolean
+  endpoint: string
+  capabilities: string[]
+}
+
+export const AGENTS: AgentDef[] = [
   { id: "aria",        name: "ARIA",        role: "AI assistant + chat interface",              active: true,  endpoint: "/api/aria",        capabilities: ["chat","reason","analyze","summarize"] },
   { id: "discovery",   name: "DISCOVERY",   role: "Real web scraping — AZ contractors",         active: true,  endpoint: "/api/discovery",   capabilities: ["scrape","lead_gen","deduplicate"] },
   { id: "intelligence",name: "INTELLIGENCE",role: "AI lead scoring + profile generation",       active: true,  endpoint: "/api/intelligence",capabilities: ["score","profile","rank","pitch"] },
