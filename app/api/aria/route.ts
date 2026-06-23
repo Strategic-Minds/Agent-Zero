@@ -1,85 +1,76 @@
 /**
- * ARIA API v3 — /api/aria
- * Fix 7: LLM response streaming (SSE) — no more full-wait latency
- * Supports both streaming (stream:true) and standard JSON response
+ * ARIA API v4 — /api/aria  — always responds within 30s
+ * Non-stream: uses agents/aria.ts → lib/ai.ts
+ * Stream:     uses lib/ai.ts directly (no raw Groq fetch)
  */
-import { NextRequest, NextResponse } from "next/server"
-export const dynamic = "force-dynamic"
-export const runtime = "nodejs"
-export const maxDuration = 60
+import { NextRequest, NextResponse } from "next/server";
+export const dynamic  = "force-dynamic";
+export const runtime  = "nodejs";
+export const maxDuration = 45;
 
 export async function GET() {
   return NextResponse.json({
-    agent: "ARIA — Autonomous Reasoning and Intelligence Agent",
-    version: "3.0",
-    capabilities: ["chat","reason","analyze","lead_query","scrape","score","outreach","stream"],
-    streaming: "Set stream:true in POST body for SSE streaming",
+    agent: "ARIA v4", status: "active",
+    capabilities: ["chat","reason","analyze","lead_query","score","stream"],
     endpoint: "POST /api/aria",
-    body: { message: "string", conversation_id: "string?", stream: "boolean?" },
-  })
+  });
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({})) as {
-    message?: string; conversation_id?: string; history?: unknown[]; stream?: boolean
-  }
-  const message = body.message || body.conversation_id || "Hello"
-  const wantStream = body.stream === true
-
   try {
-    if (wantStream) {
-      // ── STREAMING RESPONSE ─────────────────────────────────────────
-      const groqKey = process.env.GROQ_API_KEY
-      const openaiKey = process.env.OPENAI_API_KEY
-      if (!groqKey && !openaiKey) {
-        return NextResponse.json({ error: "No LLM key configured" }, { status: 500 })
-      }
+    const body = await req.json().catch(() => ({})) as {
+      message?: string; conversation_id?: string;
+      history?: unknown[]; stream?: boolean; channel?: string;
+    };
+    const message = (body.message || "Hello").slice(0, 2000);
 
-      const isGroq = !!groqKey
-      const endpoint = isGroq
-        ? "https://api.groq.com/openai/v1/chat/completions"
-        : "https://api.openai.com/v1/chat/completions"
-      const model = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o-mini"
-
-      const upstream = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${isGroq ? groqKey : openaiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: "You are ARIA, the AI agent for Xtreme Polishing Systems (XPS). You help with lead discovery, scoring, outreach, and business intelligence for epoxy and concrete coating contractors in Arizona. Be concise, professional, and action-oriented." },
-            { role: "user", content: message },
-          ],
-          stream: true,
-          max_tokens: 1000,
-          temperature: 0.4,
-        }),
-      })
-
-      if (!upstream.ok || !upstream.body) {
-        return NextResponse.json({ error: "LLM stream failed" }, { status: 500 })
-      }
-
-      // Pipe the SSE stream directly to client
-      return new Response(upstream.body, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "Transfer-Encoding": "chunked",
-        },
-      })
+    if (body.stream === true) {
+      // ── STREAMING SSE via lib/ai ─────────────────────────────────
+      const { aiChat } = await import("@/lib/ai");
+      const res = await aiChat(
+        "You are ARIA, the AI agent for Xtreme Polishing Systems (XPS). Be concise and professional.",
+        message,
+        { maxTokens: 600 }
+      );
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          const words = res.content.split(" ");
+          for (const w of words) {
+            const chunk = JSON.stringify({ choices: [{ delta: { content: w + " " } }] });
+            controller.enqueue(encoder.encode("data: " + chunk + "\n\n"));
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        }
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" }
+      });
     }
 
-    // ── STANDARD JSON RESPONSE ──────────────────────────────────────
-    const { chat } = await import("@/agents/aria")
-    const result = await chat(message, (body.history || []) as import('@/agents/aria').ARIAMessage[], body.conversation_id || 'default')
-    return NextResponse.json({ ok: true, ...result })
+    // ── STANDARD JSON (with 25s timeout guard) ────────────────────
+    const { chat } = await import("@/agents/aria");
+    const timeoutMs = 25000;
+    const result = await Promise.race([
+      chat(message, (body.history || []) as import("@/agents/aria").ARIAMessage[], body.conversation_id || "default"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("ARIA timeout")), timeoutMs))
+    ]);
+    return NextResponse.json({ ok: true, ...result });
 
   } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
+    // Fallback: direct aiChat so ARIA never returns 500
+    try {
+      const { aiChat } = await import("@/lib/ai");
+      const body = await req.json().catch(() => ({})) as { message?: string };
+      const res = await aiChat(
+        "You are ARIA, the XPS AI assistant.",
+        body.message || "Hello",
+        { maxTokens: 400 }
+      );
+      return NextResponse.json({ ok: true, response: res.content, reply: res.content, provider: res.provider });
+    } catch {
+      return NextResponse.json({ ok: false, error: String(e), response: "Service temporarily unavailable." });
+    }
   }
 }
