@@ -1,6 +1,5 @@
 /**
- * DISCOVERY AGENT - Stub (safe build)
- * Real discovery runs via Base44 automations
+ * DISCOVERY AGENT - Stub (real discovery via Base44 automations)
  */
 
 export interface DiscoveryResult {
@@ -9,17 +8,21 @@ export interface DiscoveryResult {
   source: string;
 }
 
-export async function runXPSDiscovery(options?: {
+export interface DiscoveryOptions {
   region?: string;
   limit?: number;
   source?: string;
-}): Promise<DiscoveryResult> {
-  // Stub - real discovery via Base44 automations
+}
+
+// Accepts number (limit) OR options object OR nothing
+export async function runXPSDiscovery(
+  optionsOrLimit?: number | DiscoveryOptions
+): Promise<DiscoveryResult> {
   return { leads: [], total: 0, source: "stub" };
 }
 
 export async function discoverLeads(query: string): Promise<DiscoveryResult> {
-  return runXPSDiscovery({ source: query });
+  return { leads: [], total: 0, source: query };
 }
 
 export default { runXPSDiscovery, discoverLeads };
