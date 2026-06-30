@@ -1,182 +1,161 @@
-/**
- * /api/audit — 100-point forensic system audit
- * Scores 12 dimensions against FAANG-level benchmarks
- */
 import { NextRequest, NextResponse } from "next/server";
+import { runFullAudit, type AuditConfig } from "@/lib/audit-engine";
+import { remember } from "@/lib/memory";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { classifyAction, logAction } from "@/lib/governance";
 
-export const dynamic    = "force-dynamic";
-export const maxDuration = 45;
+// AGENT-ZERO — /api/audit
+// Receives discovery jobs from BUSINESS-BUILDER pipeline
+// Runs 12-dimension FAANG audit + scores + writes memory
+// Triggers SM QA Agent for frontend/backend testing
+// Returns scored report for AUTO_BUILDER to fix
 
-interface Dimension {
-  label:       string;
-  score:       number;
-  max:         number;
-  weight:      number;
-  strengths:   string[];
-  gaps:        string[];
-  recommended: string[];
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const SHARED_SECRET = process.env.APEX_SHARED_SECRET ?? "";
+const SM_QA_URL = process.env.SM_QA_AGENT_URL ?? "";
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+
+async function sbUpdate(table: string, match: Record<string,string>, data: Record<string,unknown>) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  const params = Object.entries(match).map(([k,v])=>`${k}=eq.${encodeURIComponent(v)}`).join("&");
+  await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
+    method: "PATCH",
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+               "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(data),
+  });
 }
 
-async function pingEndpoint(base: string, path: string, method = "GET", body?: object): Promise<{ ok: boolean; ms: number; status?: number }> {
-  const t0 = Date.now();
+async function triggerQA(targetUrl: string, projectName: string, auditReport: Record<string,unknown>) {
+  if (!SM_QA_URL) return { triggered: false, reason: "SM_QA_AGENT_URL not set" };
   try {
-    const opts: RequestInit = { method, signal: AbortSignal.timeout(8000) };
-    if (body) { opts.body = JSON.stringify(body); opts.headers = { "Content-Type": "application/json" }; }
-    const r = await fetch(`${base}${path}`, opts);
-    return { ok: r.status < 500, ms: Date.now() - t0, status: r.status };
-  } catch {
-    return { ok: false, ms: Date.now() - t0 };
-  }
-}
-
-export async function GET() {
-  return NextResponse.json({ endpoint: "/api/audit", description: "100-point forensic system audit" });
+    const res = await fetch(`${SM_QA_URL}/api/run-test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site_url: targetUrl,
+        project_name: projectName,
+        persona_id: "homeowner",
+        source: "agent_zero_pipeline",
+        audit_context: {
+          score: auditReport.overall_score,
+          top_gaps: auditReport.top_gaps,
+          triggered_by: "agent_zero",
+        },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return { triggered: res.ok, status: res.status };
+  } catch(e) { return { triggered: false, error: String(e) }; }
 }
 
 export async function POST(req: NextRequest) {
-  const start = Date.now();
-  const body  = await req.json().catch(() => ({})) as { system?: string; base_url?: string };
-  const baseUrl = body.base_url || (req.headers.get("x-forwarded-host")
-    ? `https://${req.headers.get("x-forwarded-host")}`
-    : "http://localhost:3000");
+  // Auth
+  const token = req.headers.get("x-apex-token") ?? "";
+  if (SHARED_SECRET && token !== SHARED_SECRET) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
 
-  // Live endpoint probes
-  const [aria, health, scrape, outreach, scoreBatch, dashboard] = await Promise.all([
-    pingEndpoint(baseUrl, "/api/aria", "POST", { message: "ping", channel: "audit" }),
-    pingEndpoint(baseUrl, "/api/health"),
-    pingEndpoint(baseUrl, "/api/scrape"),
-    pingEndpoint(baseUrl, "/api/outreach"),
-    pingEndpoint(baseUrl, "/api/score-batch"),
-    pingEndpoint(baseUrl, "/api/dashboard"),
-  ]);
+  let body: {
+    target_url: string; target_name: string; target_type: string;
+    discovery_id?: string; strict_threshold?: number; next_step?: string;
+  };
+  try { body = await req.json(); } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
 
-  const groqOk   = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.length > 20);
-  const openaiOk = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 20);
-  const twilioOk = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
-  const supabaseOk = !!(process.env.SUPABASE_URL);
+  const { target_url, target_name, target_type, discovery_id, strict_threshold = 85 } = body;
+  if (!target_url) return NextResponse.json({ ok: false, error: "target_url required" }, { status: 422 });
 
-  const dimensions: Dimension[] = [
-    {
-      label: "Infrastructure & Hosting",
-      score: 88, max: 100, weight: 8,
-      strengths: ["✅ Vercel Edge deployment","✅ Auto-scaling serverless","✅ Global CDN"],
-      gaps: ["⚠️ No custom domain set"],
-      recommended: ["Add custom domain in Vercel dashboard"]
-    },
-    {
-      label: "Reliability & Uptime",
-      score: aria.ok ? 90 : 55, max: 100, weight: 8,
-      strengths: ["✅ Health endpoint active","✅ ARIA responding","✅ Serverless = no SPOF"],
-      gaps: aria.ok ? [] : ["❌ ARIA not responding"],
-      recommended: []
-    },
-    {
-      label: "Security & Compliance",
-      score: 72, max: 100, weight: 8,
-      strengths: ["✅ Encrypted env vars","✅ HTTPS enforced","✅ No secrets in code"],
-      gaps: ["⚠️ No rate limiting on public endpoints","⚠️ No auth on admin routes"],
-      recommended: ["Add Vercel Edge Middleware rate limiter","Add Bearer token to /api/audit and /api/score-batch"]
-    },
-    {
-      label: "Performance & Latency",
-      score: aria.ok && aria.ms < 2000 ? 82 : 60, max: 100, weight: 8,
-      strengths: ["✅ ARIA < 2s p50","✅ Groq llama-3.3 70b fast","✅ Edge routing"],
-      gaps: aria.ms > 2000 ? ["⚠️ ARIA latency > 2s"] : [],
-      recommended: ["Cache common ARIA responses with Redis/Upstash"]
-    },
-    {
-      label: "AI Intelligence & Quality",
-      score: groqOk ? 78 : 40, max: 100, weight: 10,
-      strengths: groqOk
-        ? ["✅ Groq Llama 3.3 70B active","✅ Raw fetch — no SDK failures","✅ AI-enriched lead pitches","✅ AI batch scoring","✅ JSON structured output"]
-        : ["⚠️ Groq key missing"],
-      gaps: groqOk
-        ? ["⚠️ No vector/RAG memory","⚠️ No multi-turn conversation state"]
-        : ["❌ No AI provider — static responses only"],
-      recommended: ["Add Upstash Vector for RAG","Implement conversation memory with Redis"]
-    },
-    {
-      label: "Autonomy & Self-Healing",
-      score: 65, max: 100, weight: 8,
-      strengths: ["✅ Validator self-test suite (30 tests)","✅ Audit self-assessment"],
-      gaps: ["⚠️ No automated recovery on failure","⚠️ No dead-man switch"],
-      recommended: ["Add Vercel Cron /api/health-monitor — alert on degraded status"]
-    },
-    {
-      label: "Data Integrity & Persistence",
-      score: supabaseOk ? 75 : 52, max: 100, weight: 8,
-      strengths: supabaseOk ? ["✅ Supabase connected","✅ Postgres RLS"] : [],
-      gaps: supabaseOk ? [] : ["❌ No database configured — all data is ephemeral","⚠️ Lead data not persisted across requests"],
-      recommended: ["Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"]
-    },
-    {
-      label: "Observability & Monitoring",
-      score: 70, max: 100, weight: 8,
-      strengths: ["✅ /api/health live AI ping","✅ /api/dashboard metrics","✅ Vercel function logs"],
-      gaps: ["⚠️ No external alerting (PagerDuty/Slack)","⚠️ No p95/p99 latency tracking"],
-      recommended: ["Add Vercel Log Drains to Datadog or Logtail"]
-    },
-    {
-      label: "Developer Experience & Code",
-      score: 75, max: 100, weight: 8,
-      strengths: ["✅ TypeScript strict","✅ Clean module separation","✅ Raw fetch AI engine — zero SDK deps"],
-      gaps: ["⚠️ No unit tests","⚠️ No OpenAPI spec"],
-      recommended: ["Add Vitest unit tests for lib/ai.ts","Generate OpenAPI schema from routes"]
-    },
-    {
-      label: "User Experience & Design",
-      score: 68, max: 100, weight: 8,
-      strengths: ["✅ Dashboard endpoint available","✅ ARIA conversational interface"],
-      gaps: ["⚠️ No frontend UI deployed","⚠️ API-only — no visual dashboard"],
-      recommended: ["Deploy the React dashboard page at /dashboard"]
-    },
-    {
-      label: "Business Value & ROI",
-      score: scrape.ok && outreach.ok ? 72 : 48, max: 100, weight: 10,
-      strengths: [
-        "✅ Lead discovery endpoint active",
-        "✅ AI pitch generation per lead",
-        "✅ Batch lead scoring A-D tiers",
-        twilioOk ? "✅ Twilio outreach configured" : "⚠️ Outreach needs Twilio creds",
-      ],
-      gaps: twilioOk ? ["⚠️ No CRM sync (HubSpot/Salesforce)"] : ["❌ Twilio not configured — can't send outreach"],
-      recommended: twilioOk ? ["Add HubSpot sync on new lead creation"] : ["Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER to Vercel env"]
-    },
-    {
-      label: "FAANG Feature Parity",
-      score: 65, max: 100, weight: 8,
-      strengths: ["✅ Multi-provider AI waterfall","✅ Structured JSON outputs","✅ Async parallel scoring","✅ Real scraping endpoint"],
-      gaps: ["⚠️ No SSE streaming","⚠️ No vector memory/RAG","⚠️ No async job queue"],
-      recommended: ["Add /api/aria/stream SSE endpoint","Add Upstash Redis queue for batch jobs"]
-    },
-  ];
+  const startedAt = Date.now();
 
-  const totalWeight  = dimensions.reduce((s,d) => s + d.weight, 0);
-  const weightedSum  = dimensions.reduce((s,d) => s + d.score * d.weight, 0);
-  const overallScore = Math.round(weightedSum / totalWeight);
+  // Update pipeline status
+  if (discovery_id) {
+    await sbUpdate("pipeline_discovery_queue", { discovery_id },
+      { status: "analyzing", stage: "agent_zero_audit", started_at: new Date().toISOString() });
+  }
 
-  const grade = overallScore >= 95 ? "A+" : overallScore >= 90 ? "A" : overallScore >= 85 ? "B+" :
-    overallScore >= 80 ? "B" : overallScore >= 75 ? "C+" : overallScore >= 70 ? "C" :
-    overallScore >= 60 ? "D" : "F";
-  const tier = overallScore >= 90 ? "PRODUCTION" : overallScore >= 80 ? "STAGING-PLUS" :
-    overallScore >= 70 ? "STAGING" : "PROTOTYPE";
+  // Run 12-dimension FAANG audit
+  let auditReport: Record<string, unknown> = {};
+  let overallScore = 0;
+  try {
+    const config: AuditConfig = {
+      targetUrl: target_url,
+      targetName: target_name,
+      targetType: (target_type as AuditConfig["targetType"]) ?? "external",
+      auditId: discovery_id ?? `AUDIT-${Date.now()}`,
+      strictMode: true,
+      scoreThreshold: strict_threshold,
+    };
+    const result = await runFullAudit(config);
+    auditReport = result as Record<string, unknown>;
+    overallScore = (result as { overall_score?: number }).overall_score ?? 0;
+  } catch(e) {
+    auditReport = { error: String(e), overall_score: 0 };
+  }
 
-  const allGaps   = dimensions.flatMap(d => d.gaps);
-  const allFixes  = dimensions.flatMap(d => d.recommended);
-  const critGaps  = allGaps.filter(g => g.startsWith("❌"));
+  const passed = overallScore >= strict_threshold;
+  const durationMs = Date.now() - startedAt;
+
+  // Write to agent memory
+  await remember({
+    agent_id: "agent_zero",
+    memory_type: "episodic",
+    key: `audit:${target_url}:${new Date().toISOString().slice(0,10)}`,
+    value: { target_url, target_name, score: overallScore, passed, gaps: (auditReport as {top_gaps?: string[]}).top_gaps ?? [] },
+    importance: passed ? 5 : 8,
+    tags: ["audit", target_type, passed ? "passed" : "failed"],
+  }).catch(() => null);
+
+  // Write to Supabase pipeline
+  const db = getSupabaseAdmin();
+  await db.from("pipeline_audit_results").insert({
+    discovery_id: discovery_id ?? null,
+    target_url, target_name, target_type,
+    overall_score: overallScore,
+    passed,
+    strict_threshold,
+    audit_report: auditReport,
+    duration_ms: durationMs,
+    created_at: new Date().toISOString(),
+  }).catch(() => null);
+
+  // Trigger SM QA Agent (next pipeline stage)
+  const qaResult = passed
+    ? await triggerQA(target_url, target_name, auditReport)
+    : { triggered: false, reason: `Score ${overallScore} below threshold ${strict_threshold}` };
+
+  // Update pipeline record
+  if (discovery_id) {
+    await sbUpdate("pipeline_discovery_queue", { discovery_id }, {
+      status: passed ? "qa_testing" : "blocked_low_score",
+      stage: passed ? "sm_qa_agent" : "blocked",
+      analysis_score: overallScore,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  await logAction(`audit:${target_url}`, passed ? 1 : 2);
 
   return NextResponse.json({
-    ok:            true,
-    system:        body.system || "agent-zero",
+    ok: true,
+    discovery_id,
+    target_url,
     overall_score: overallScore,
-    faang_grade:   grade,
-    tier,
-    dimensions,
-    critical_gaps:       critGaps,
-    mandatory_fixes:     allFixes,
-    endpoint_health: { aria: aria.ok, health: health.ok, scrape: scrape.ok,
-      outreach: outreach.ok, score_batch: scoreBatch.ok, dashboard: dashboard.ok },
-    credentials:    { groq: groqOk, openai: openaiOk, twilio: twilioOk, supabase: supabaseOk },
-    total_latency_ms: Date.now() - start,
+    passed,
+    strict_threshold,
+    pipeline_continued: qaResult.triggered,
+    qa_agent: qaResult,
+    duration_ms: durationMs,
+    top_gaps: (auditReport as {top_gaps?: string[]}).top_gaps ?? [],
+    next: passed ? "sm_qa_agent_running" : "blocked — score below threshold, auto_builder will fix",
   });
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, route: "agent-zero/api/audit", mode: "unified_pipeline" });
 }
