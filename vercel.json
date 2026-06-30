@@ -1,3 +1,11 @@
 {
-  "crons": []
+  "crons": [
+    { "path": "/api/cron/pipeline-orchestrator", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/ai-monitor", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/evolve", "schedule": "0 */4 * * *" },
+    { "path": "/api/cron/validate", "schedule": "0 */2 * * *" },
+    { "path": "/api/cron/auto-heal", "schedule": "0 */1 * * *" },
+    { "path": "/api/cron/benchmark", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/daily-briefing", "schedule": "0 7 * * *" }
+  ]
 }
