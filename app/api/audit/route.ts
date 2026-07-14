@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runFullAudit, type AuditConfig } from "@/lib/audit-engine";
+import { runIndependentAudit, type AuditConfig } from "@/lib/audit-engine";
 import { remember } from "@/lib/memory";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { classifyAction, logAction } from "@/lib/governance";
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       strictMode: true,
       scoreThreshold: strict_threshold,
     };
-    const result = await runFullAudit(config);
+    const result = await runIndependentAudit(config);
     auditReport = result as Record<string, unknown>;
     overallScore = (result as { overall_score?: number }).overall_score ?? 0;
   } catch(e) {
