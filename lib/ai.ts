@@ -87,6 +87,10 @@ export async function aiChat(system: string, user: string, opts?: { model?: stri
   return ai([{ role: 'system', content: system }, { role: 'user', content: user }], opts);
 }
 
+export async function aiText(system: string, user: string): Promise<string> {
+  return (await aiChat(system, user)).content;
+}
+
 export async function aiJSON<T = Record<string, any>>(system: string, user: string, fallback: T): Promise<T> {
   const r = await ai([
     { role: 'system', content: system + '\n\nReturn ONLY a valid JSON object. Do not include markdown blocks, backticks, or other preamble.' },
@@ -102,4 +106,22 @@ export async function aiJSON<T = Record<string, any>>(system: string, user: stri
     console.error('[AI] JSON parse failed, returning fallback:', e, r.content);
     return fallback;
   }
+}
+
+export function aiProviderStatus() {
+  const gw = (process.env.AI_GATEWAY_API_KEY ?? '').trim().length > 20;
+  const groq = (process.env.GROQ_API_KEY ?? '').trim().length > 20;
+  const active = gw ? 'vercel_gateway' : groq ? 'groq' : 'static';
+  return {
+    vercel_gateway: gw,
+    groq,
+    openai: false,
+    active_provider: active,
+    gateway_model: GATEWAY_MODEL,
+    groq_model: 'llama-3.3-70b-versatile',
+  };
+}
+
+export function getActiveProvider(): string {
+  return aiProviderStatus().active_provider;
 }
