@@ -1,105 +1,78 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
 
-export const maxDuration = 60;
-
-const INDUSTRIES = [
-  "Construction", "Flooring", "Commercial Real Estate", "Property Management",
-  "Warehousing", "Manufacturing", "Retail", "Healthcare", "Hospitality", "Education"
-];
-
-const CATEGORIES = [
-  "Epoxy Flooring", "Concrete Polishing", "Garage Floors", "Commercial Flooring",
-  "Industrial Coatings", "Decorative Concrete", "Floor Repair", "Warehouse Flooring"
-];
-
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
-}
-
-async function querySupabase(path: string, options: RequestInit = {}): Promise<any> {
-  const supabaseUrl = process.env.SUPABASE_URL || "";
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
-  
-  const headers = {
-    "Content-Type": "application/json",
-    "apikey": supabaseKey,
-    "Authorization": `Bearer ${supabaseKey}`,
-    ...options.headers,
-  };
-
-  const response = await fetchWithTimeout(
-    `${supabaseUrl}${path}`,
-    { ...options, headers },
-    10000 // 10 seconds timeout
-  );
-
-  if (!response.ok) {
-    throw new Error(`Supabase query failed: ${response.statusText}`);
-  }
-
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { industry, categories, location, radius_miles } = body;
+    const { industry, categories, location, radius_miles = 25 } = body;
 
-    if (!industry || !categories || !location) {
-      return NextResponse.json({ error: "Missing required query parameters" }, { status: 400 });
+    if (!industry || !categories || !Array.isArray(categories) || !location) {
+      return NextResponse.json({ error: 'Missing parameters or invalid categories format' }, { status: 400 });
     }
 
-    if (!INDUSTRIES.includes(industry)) {
-      return NextResponse.json({ error: `Unsupported industry: ${industry}` }, { status: 400 });
+    const tKey = process.env.TAVILY_API_KEY;
+    if (!tKey) {
+      return NextResponse.json({ error: 'Tavily API key is not configured' }, { status: 500 });
     }
 
-    // Filter categories to ensure they match permitted set
-    const validCategories = categories.filter((cat: string) => CATEGORIES.includes(cat));
-    if (validCategories.length === 0) {
-      return NextResponse.json({ error: "No valid categories selected" }, { status: 400 });
+    const scoredLeads = [];
+
+    // Query per category
+    for (const cat of categories) {
+      const q = `${industry} ${cat} contractors in ${location} within ${radius_miles} miles`;
+      const tResp = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: tKey,
+          query: q,
+          max_results: 3
+        })
+      });
+
+      if (tResp.ok) {
+        const searchData = await tResp.json();
+        const results = searchData.results || [];
+
+        for (const item of results) {
+          let domain = '';
+          try {
+            domain = new URL(item.url).hostname.replace('www.', '');
+          } catch (e) {}
+
+          if (!domain) continue;
+
+          // score algorithm based on keyword density
+          let score = 50;
+          const text = (item.title + ' ' + item.content).toLowerCase();
+          if (text.includes('flooring')) score += 15;
+          if (text.includes('epoxy')) score += 15;
+          if (text.includes('concrete')) score += 10;
+          if (text.includes('commercial') || text.includes('industrial')) score += 10;
+
+          scoredLeads.push({
+            company_name: item.title ? item.title.split('-')[0].split('|')[0].trim() : 'Contractor',
+            phone: 'N/A',
+            email: 'info@' + domain,
+            website: domain,
+            address: location,
+            category: cat,
+            industry,
+            score: Math.min(score, 100),
+            snippet: item.content
+          });
+        }
+      }
     }
 
-    // Query scored leads matched to industry and valid categories from database
-    const queryStr = `/rest/v1/leads?industry=eq.${encodeURIComponent(industry)}&order=lead_score.desc.nullslast&limit=50`;
-    const results = await querySupabase(queryStr, { method: "GET" });
-
-    // Filter locally by category and location keyword matches if provided
-    let filteredResults = results || [];
-    if (validCategories.length > 0) {
-      filteredResults = filteredResults.filter((lead: any) => 
-        validCategories.some((cat: string) => 
-          (lead.category && lead.category.toLowerCase().includes(cat.toLowerCase())) ||
-          (lead.company_name && lead.company_name.toLowerCase().includes(cat.toLowerCase()))
-        )
-      );
-    }
-
-    if (location) {
-      filteredResults = filteredResults.filter((lead: any) => 
-        (lead.location && lead.location.toLowerCase().includes(location.toLowerCase())) ||
-        (lead.address && lead.address.toLowerCase().includes(location.toLowerCase()))
-      );
-    }
+    // Sort by relevance score
+    scoredLeads.sort((a, b) => b.score - a.score);
 
     return NextResponse.json({
       success: true,
-      query: { industry, categories: validCategories, location, radius_miles },
-      results: filteredResults,
+      leads: scoredLeads
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || 'Search failed' }, { status: 500 });
   }
 }
